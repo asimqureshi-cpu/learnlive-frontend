@@ -5,11 +5,62 @@ import {
   LiveKitRoom,
   VideoConference,
   RoomAudioRenderer,
+  useRoomContext,
 } from '@livekit/components-react';
 import '@livekit/components-styles';
 
 const API = process.env.NEXT_PUBLIC_BACKEND_URL;
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL;
+
+function AudioStreamer({ sessionId, participantName }) {
+  const room = useRoomContext();
+  const mediaRecorderRef = useRef(null);
+  const streamingRef = useRef(false);
+
+  useEffect(() => {
+    if (!room || streamingRef.current) return;
+
+    async function startAudioStreaming() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioWs = new WebSocket(`${WS_URL}/ws/audio?sessionId=${sessionId}&participant=${encodeURIComponent(participantName)}`);
+        
+        audioWs.onopen = () => {
+          streamingRef.current = true;
+          const mediaRecorder = new MediaRecorder(stream, {
+            mimeType: 'audio/webm;codecs=opus',
+            audioBitsPerSecond: 16000,
+          });
+          mediaRecorderRef.current = mediaRecorder;
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && audioWs.readyState === WebSocket.OPEN) {
+              audioWs.send(event.data);
+            }
+          };
+          mediaRecorder.start(250);
+        };
+
+        audioWs.onerror = (err) => console.error('Audio WS error:', err);
+        audioWs.onclose = () => {
+          streamingRef.current = false;
+          if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
+        };
+      } catch (err) {
+        console.error('Audio streaming failed:', err);
+      }
+    }
+
+    room.on('connected', startAudioStreaming);
+    if (room.state === 'connected') startAudioStreaming();
+
+    return () => {
+      if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
+      streamingRef.current = false;
+    };
+  }, [room, sessionId, participantName]);
+
+  return null;
+}
 
 export default function SessionPage() {
   const { id } = useParams();
@@ -23,30 +74,24 @@ export default function SessionPage() {
   const wsRef = useRef(null);
 
   useEffect(() => {
-    // Pre-fill name from URL if provided
     const urlName = searchParams.get('name');
     if (urlName) setNameInput(urlName);
   }, [searchParams]);
 
-  // Connect WebSocket when in session to receive prompts
   useEffect(() => {
     if (!name || !id) return;
-
     const ws = new WebSocket(`${WS_URL}/ws?sessionId=${id}&role=participant&participantName=${encodeURIComponent(name)}`);
     wsRef.current = ws;
-
     ws.onmessage = (e) => {
       const { event, data } = JSON.parse(e.data);
       if (event === 'AI_PROMPT') {
         if (data.target === 'group' || data.target === name) {
           const promptEntry = { ...data, id: Date.now() };
           setPrompts(prev => [promptEntry, ...prev]);
-          // Auto-dismiss after 45 seconds
           setTimeout(() => setPrompts(prev => prev.filter(p => p.id !== promptEntry.id)), 45000);
         }
       }
     };
-
     return () => ws.close();
   }, [name, id]);
 
@@ -69,24 +114,23 @@ export default function SessionPage() {
     setJoining(false);
   }
 
-  // Pre-join screen
   if (!token) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 to-brand flex items-center justify-center p-4">
-        <div className="bg-white/5 backdrop-blur border border-white/15 rounded-2xl p-8 w-full max-w-md">
-          <h1 className="font-display text-2xl font-bold text-white mb-2">Join Discussion</h1>
-          <p className="text-slate-400 text-sm mb-6">Enter your name to join the learning session.</p>
+      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f172a,#1a2f5e)',display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
+        <div style={{background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:'16px',padding:'2rem',width:'100%',maxWidth:'400px'}}>
+          <h1 style={{color:'white',fontSize:'1.5rem',fontWeight:'bold',marginBottom:'0.5rem'}}>Join Discussion</h1>
+          <p style={{color:'#94a3b8',fontSize:'0.875rem',marginBottom:'1.5rem'}}>Enter your name to join the learning session.</p>
           <input
             value={nameInput}
             onChange={e => setNameInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && joinSession()}
             placeholder="Your full name"
-            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-accent mb-4"
+            style={{width:'100%',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'12px',padding:'12px 16px',color:'white',fontSize:'0.875rem',marginBottom:'1rem',boxSizing:'border-box',outline:'none'}}
           />
           <button
             onClick={joinSession}
             disabled={joining || !nameInput.trim()}
-            className="w-full bg-accent hover:bg-orange-600 disabled:opacity-40 text-white py-3 rounded-xl text-sm font-medium transition-all"
+            style={{width:'100%',background:'#e8622a',color:'white',padding:'12px',borderRadius:'12px',fontSize:'0.875rem',fontWeight:'500',border:'none',cursor:'pointer',opacity:joining||!nameInput.trim()?0.4:1}}
           >
             {joining ? 'Joining...' : 'Join Session →'}
           </button>
@@ -96,38 +140,29 @@ export default function SessionPage() {
   }
 
   return (
-    <div className="h-screen bg-slate-950 flex flex-col">
-      {/* Prompt notifications — floats over video */}
+    <div style={{height:'100vh',background:'#0f172a',display:'flex',flexDirection:'column',position:'relative'}}>
       {prompts.length > 0 && (
-        <div className="absolute top-4 right-4 z-50 space-y-3 max-w-sm">
+        <div style={{position:'absolute',top:'1rem',right:'1rem',zIndex:50,display:'flex',flexDirection:'column',gap:'0.75rem',maxWidth:'320px'}}>
           {prompts.map(p => (
-            <div key={p.id} className="prompt-toast bg-brand/95 backdrop-blur border border-brand-light/50 rounded-xl p-4 shadow-2xl">
-              <div className="flex items-start justify-between gap-3">
+            <div key={p.id} style={{background:'rgba(26,47,94,0.95)',border:'1px solid rgba(45,74,138,0.5)',borderRadius:'12px',padding:'1rem',boxShadow:'0 25px 50px rgba(0,0,0,0.5)'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'0.75rem'}}>
                 <div>
-                  <p className="text-accent text-xs font-semibold uppercase tracking-wider mb-1">
+                  <p style={{color:'#e8622a',fontSize:'0.75rem',fontWeight:'600',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:'0.25rem'}}>
                     {p.target === 'group' ? '💬 Group Prompt' : `💬 For you, ${name}`}
                   </p>
-                  <p className="text-white text-sm leading-relaxed">"{p.prompt}"</p>
+                  <p style={{color:'white',fontSize:'0.875rem',lineHeight:'1.5'}}>"{p.prompt}"</p>
                 </div>
                 <button onClick={() => setPrompts(prev => prev.filter(x => x.id !== p.id))}
-                  className="text-slate-400 hover:text-white text-lg leading-none shrink-0">×</button>
+                  style={{color:'#94a3b8',background:'none',border:'none',cursor:'pointer',fontSize:'1.25rem',lineHeight:1}}>×</button>
               </div>
             </div>
           ))}
         </div>
       )}
-
-      {/* LiveKit video room */}
-      <LiveKitRoom
-        token={token}
-        serverUrl={liveKitUrl}
-        connect={true}
-        video={true}
-        audio={true}
-        style={{ height: '100%' }}
-      >
+      <LiveKitRoom token={token} serverUrl={liveKitUrl} connect={true} video={true} audio={true} style={{height:'100%'}}>
         <VideoConference />
         <RoomAudioRenderer />
+        <AudioStreamer sessionId={id} participantName={name} />
       </LiveKitRoom>
     </div>
   );
