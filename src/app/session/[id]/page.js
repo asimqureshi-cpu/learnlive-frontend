@@ -36,7 +36,8 @@ function AudioStreamer({ sessionId, participantName }) {
         });
         console.log('[Audio] Microphone access granted');
 
-        const wsUrl = `${WS_URL}/ws/audio?sessionId=${sessionId}&participant=${encodeURIComponent(participantName)}`;
+        const wsUrl = `${WS_URL}/ws?sessionId=${sessionId}&participant=${encodeURIComponent(participantName)}&type=audio`;
+```
         console.log('[Audio] Connecting to:', wsUrl);
         
         const audioWs = new WebSocket(wsUrl);
