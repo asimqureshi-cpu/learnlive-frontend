@@ -19,7 +19,7 @@ export default function HomePage() {
     try {
       const res = await fetch(API + '/api/sessions');
       const data = await res.json();
-      setSessions(data);
+      setSessions(Array.isArray(data) ? data : []);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }
