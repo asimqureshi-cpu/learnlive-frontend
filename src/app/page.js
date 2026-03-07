@@ -1,6 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 const API = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -11,15 +17,22 @@ export default function HomePage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: '', topic: '' });
   const [deletingId, setDeletingId] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
   const router = useRouter();
 
-  useEffect(() => { fetchSessions(); }, []);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { router.push('/login'); return; }
+      setCurrentUser(session.user);
+      fetchSessions();
+    });
+  }, []);
 
   async function fetchSessions() {
     try {
       const res = await fetch(API + '/api/sessions');
       const data = await res.json();
-      setSessions(data);
+      setSessions(Array.isArray(data) ? data : []);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }
@@ -50,6 +63,11 @@ export default function HomePage() {
     setDeletingId(null);
   }
 
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    router.push('/login');
+  }
+
   const statusColor = (s) => s === 'active' ? '#2d6a4f' : s === 'completed' ? '#5c4a1e' : '#4a4a4a';
   const statusLabel = (s) => s === 'active' ? 'Live' : s === 'completed' ? 'Completed' : 'Pending';
 
@@ -67,6 +85,8 @@ export default function HomePage() {
         .btn-primary:hover { background: #2d1f0a; }
         .btn-secondary { background: transparent; color: #5c4a1e; border: 1px solid #c9b890; padding: 0.75rem 1.75rem; font-family: 'Crimson Pro', Georgia, serif; font-size: 1rem; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
         .btn-secondary:hover { border-color: #8b6914; color: #1a1208; }
+        .btn-outline { background: transparent; color: #5c4a1e; border: 1px solid #d4c9b0; padding: 0.4rem 0.875rem; font-family: 'Crimson Pro', Georgia, serif; font-size: 0.85rem; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
+        .btn-outline:hover { border-color: #8b6914; color: #1a1208; }
         .input-field { width: 100%; padding: 0.75rem 1rem; border: 1px solid #d4c9b0; border-radius: 3px; font-family: 'Crimson Pro', Georgia, serif; font-size: 1.05rem; color: #1a1208; background: #fdfaf4; outline: none; transition: border-color 0.2s; }
         .input-field:focus { border-color: #8b6914; background: #fff; }
         .input-field::placeholder { color: #a89878; }
@@ -78,7 +98,11 @@ export default function HomePage() {
           <span style={{ fontSize: '1.5rem', fontWeight: '600', color: '#1a1208', letterSpacing: '-0.01em' }}>LearnLive</span>
           <span style={{ fontSize: '0.75rem', color: '#8b7355', fontFamily: "'DM Mono', monospace", letterSpacing: '0.1em', textTransform: 'uppercase' }}>Academic</span>
         </div>
-        <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Session</button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <button className="btn-outline" onClick={() => router.push('/admin/users')}>Users</button>
+          <button className="btn-outline" onClick={handleSignOut}>Sign Out</button>
+          <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Session</button>
+        </div>
       </header>
 
       <main style={{ maxWidth: '900px', margin: '0 auto', padding: '3rem 2rem' }}>
@@ -94,7 +118,6 @@ export default function HomePage() {
 
         <div style={{ height: '1px', background: 'linear-gradient(90deg, transparent, #d4c9b0, transparent)', margin: '2rem 0' }} />
 
-        {/* Create Form Modal */}
         {showForm && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, backdropFilter: 'blur(4px)' }}>
             <div style={{ background: '#fdfaf4', border: '1px solid #d4c9b0', borderRadius: '6px', padding: '2.5rem', width: '100%', maxWidth: '480px', boxShadow: '0 20px 60px rgba(26,18,8,0.2)' }}>
@@ -144,11 +167,7 @@ export default function HomePage() {
                     {s.status === 'active' && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#2d6a4f', animation: 'pulse 1.5s infinite', display: 'inline-block' }} />}
                     {statusLabel(s.status)}
                   </span>
-                  <button
-                    className="delete-btn"
-                    onClick={e => deleteSession(e, s.id)}
-                    disabled={deletingId === s.id}
-                  >
+                  <button className="delete-btn" onClick={e => deleteSession(e, s.id)} disabled={deletingId === s.id}>
                     {deletingId === s.id ? '...' : 'Delete'}
                   </button>
                   <span style={{ color: '#c9b890' }}>→</span>
