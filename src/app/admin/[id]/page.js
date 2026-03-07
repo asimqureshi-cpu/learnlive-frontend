@@ -1,424 +1,222 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 const API = process.env.NEXT_PUBLIC_BACKEND_URL;
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL;
 
-function MiniScore({ label, value }) {
-  const color = value >= 7 ? '#2d6a4f' : value >= 4 ? '#8b6914' : '#8b3a2a';
-  return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: '1.3rem', fontFamily: "'DM Mono', monospace", fontWeight: '500', color, lineHeight: 1 }}>{value?.toFixed(1) || '—'}</div>
-      <div style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: '#a89878', letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: '3px' }}>{label}</div>
-    </div>
-  );
+const ALLOWED_DOMAINS = ['edu', 'ac.uk', 'ivey.ca', 'uwo.ca']; // matches your DB config
+
+function isValidDomain(email) {
+  const domain = email.split('@')[1] || '';
+  return ALLOWED_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
 }
 
-function BloomPip({ level }) {
-  const map = { REMEMBER: 1, UNDERSTAND: 2, APPLY: 3, ANALYSE: 4, EVALUATE: 5, CREATE: 6 };
-  const colors = { REMEMBER: '#a89878', UNDERSTAND: '#6b7c8b', APPLY: '#5c7a5e', ANALYSE: '#7a5c8b', EVALUATE: '#8b6914', CREATE: '#8b3a2a' };
-  const n = map[level] || 0;
-  return (
-    <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
-      {[1,2,3,4,5,6].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '1px', background: i <= n ? colors[level] : '#e8e0d0' }} />)}
-      <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: colors[level] || '#a89878', marginLeft: '4px' }}>{level || '—'}</span>
-    </div>
-  );
-}
-
-function MaterialCard({ material, onDelete }) {
-  const meta = material.metadata;
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div style={{ background: '#fdfaf4', border: '1px solid #e8e0d0', borderRadius: '4px', padding: '0.875rem 1rem', marginBottom: '0.5rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: meta ? '0.35rem' : 0 }}>
-            <span style={{ fontSize: '0.85rem', flexShrink: 0 }}>📄</span>
-            <span style={{ fontSize: '0.9rem', color: '#2a1f0e', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {meta?.title || material.file_name}
-            </span>
-            {!meta && (
-              <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#a89878', background: '#f0e8d8', padding: '0.15rem 0.4rem', borderRadius: '2px', flexShrink: 0 }}>
-                processing...
-              </span>
-            )}
-          </div>
-          {meta && (
-            <>
-              {meta.author && meta.author !== 'Unknown' && (
-                <p style={{ fontSize: '0.78rem', color: '#8b7355', fontStyle: 'italic', marginBottom: '0.35rem', marginLeft: '1.35rem' }}>{meta.author}</p>
-              )}
-              {meta.key_topics?.length > 0 && (
-                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginLeft: '1.35rem', marginBottom: meta.relevance ? '0.35rem' : 0 }}>
-                  {meta.key_topics.map((t, i) => (
-                    <span key={i} style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", background: '#f0e8d8', color: '#5c4a1e', padding: '0.15rem 0.5rem', borderRadius: '2px', border: '1px solid #e0d0b8' }}>{t}</span>
-                  ))}
-                </div>
-              )}
-              {meta.relevance && (
-                <p style={{ fontSize: '0.78rem', color: '#6b5b3e', lineHeight: 1.4, marginLeft: '1.35rem', marginTop: '0.35rem' }}>{meta.relevance}</p>
-              )}
-            </>
-          )}
-        </div>
-        <button
-          onClick={() => onDelete(material.id)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c9b890', fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", flexShrink: 0, padding: '0.1rem 0.25rem' }}
-          title="Remove material"
-        >✕</button>
-      </div>
-    </div>
-  );
-}
-
-export default function AdminPage() {
-  const { id } = useParams();
+export default function UsersPage() {
   const router = useRouter();
-  const [session, setSession] = useState(null);
-  const [scores, setScores] = useState([]);
-  const [transcripts, setTranscripts] = useState([]);
-  const [prompts, setPrompts] = useState([]);
-  const [status, setStatus] = useState('pending');
-  const [starting, setStarting] = useState(false);
-  const [ending, setEnding] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [materials, setMaterials] = useState([]);
-  const [promptInput, setPromptInput] = useState('');
-  const [promptTarget, setPromptTarget] = useState('group');
-  const [utteranceCount, setUtteranceCount] = useState(0);
-  const wsRef = useRef(null);
-  const transcriptEndRef = useRef(null);
-  const fileRef = useRef(null);
-
-  useEffect(() => { fetchSession(); }, []);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showInvite, setShowInvite] = useState(false);
+  const [invite, setInvite] = useState({ email: '', name: '', role: 'student' });
+  const [inviting, setInviting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   useEffect(() => {
-    if (status !== 'active') return;
-    const ws = new WebSocket(WS_URL + '/ws?sessionId=' + id + '&role=admin');
-    wsRef.current = ws;
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.event === 'NEW_UTTERANCE') {
-        setTranscripts(prev => [...prev, msg.data]);
-        setUtteranceCount(c => c + 1);
-        setTimeout(() => transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-      }
-      if (msg.event === 'SCORE_UPDATE') {
-        setScores(prev => {
-          const idx = prev.findIndex(s => s.speaker_tag === msg.data.speakerTag);
-          const updated = { speaker_tag: msg.data.speakerTag, ...msg.data.scores, participation_stats: msg.data.participationStats };
-          if (idx >= 0) { const n = [...prev]; n[idx] = updated; return n; }
-          return [...prev, updated];
-        });
-      }
-      if (msg.event === 'PROMPT_SUGGESTION') {
-        setPrompts(prev => [{ ...msg.data, id: Date.now(), type: 'suggestion' }, ...prev].slice(0, 10));
-      }
-      if (msg.event === 'PROMPT_ISSUED') {
-        setPrompts(prev => [{ ...msg.data, id: Date.now(), type: 'issued' }, ...prev].slice(0, 10));
-      }
-    };
-    return () => ws.close();
-  }, [status, id]);
+    checkAuthAndLoad();
+  }, []);
 
-  async function fetchSession() {
-    try {
-      const res = await fetch(API + '/api/sessions/' + id);
-      const data = await res.json();
-      setSession(data);
-      setStatus(data.status);
-      // Fetch materials with metadata
-      const matRes = await fetch(API + '/api/materials/' + id);
-      const matData = await matRes.json();
-      setMaterials(matData || []);
-      if (data.status === 'completed') router.push('/report/' + id);
-    } catch (err) { console.error(err); }
-  }
+  async function checkAuthAndLoad() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { router.push('/login'); return; }
 
-  async function startSession() {
-    setStarting(true);
-    await fetch(API + '/api/sessions/' + id + '/start', { method: 'POST' });
-    setStatus('active');
-    setStarting(false);
-  }
+    // Check user is staff or super_admin
+    const { data: user } = await supabase
+      .from('users').select('*').eq('email', session.user.email).single();
 
-  async function endSession() {
-    if (!confirm('End this session and generate the report?')) return;
-    setEnding(true);
-    await fetch(API + '/api/sessions/' + id + '/end', { method: 'POST' });
-    setEnding(false);
-    router.push('/report/' + id);
-  }
-
-  async function uploadPDF(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    setUploading(true);
-    // Optimistic UI — show file immediately
-    const tempId = 'temp-' + Date.now();
-    setMaterials(prev => [...prev, { id: tempId, file_name: file.name, metadata: null }]);
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const res = await fetch(API + '/api/materials/' + id + '/upload', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (data.material) {
-        // Replace temp entry with real one
-        setMaterials(prev => prev.map(m => m.id === tempId ? { ...data.material, metadata: null } : m));
-        // Poll for metadata every 3s for up to 30s
-        let attempts = 0;
-        const poll = setInterval(async () => {
-          attempts++;
-          const matRes = await fetch(API + '/api/materials/' + id);
-          const matData = await matRes.json();
-          const updated = matData.find(m => m.id === data.material.id);
-          if (updated?.metadata || attempts >= 10) {
-            clearInterval(poll);
-            setMaterials(Array.isArray(matData) ? matData : []);
-          }
-        }, 3000);
-      }
-    } catch (err) {
-      setMaterials(prev => prev.filter(m => m.id !== tempId));
-      alert('Upload failed');
+    if (!user || user.role === 'student') {
+      router.push('/');
+      return;
     }
-    setUploading(false);
-    if (fileRef.current) fileRef.current.value = '';
+    setCurrentUser(user);
+    fetchUsers();
   }
 
-  async function deleteMaterial(materialId) {
-    if (!confirm('Remove this material?')) return;
-    setMaterials(prev => prev.filter(m => m.id !== materialId));
-    await fetch(API + '/api/materials/' + materialId, { method: 'DELETE' });
+  async function fetchUsers() {
+    const { data } = await supabase
+      .from('users')
+      .select('id, email, name, role, can_manage_users, created_at, last_login')
+      .order('created_at', { ascending: false });
+    setUsers(data || []);
+    setLoading(false);
   }
 
-  async function issuePrompt() {
-    if (!promptInput.trim()) return;
-    await fetch(API + '/api/sessions/' + id + '/prompt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: promptTarget, prompt: promptInput, type: 'manual' }),
-    });
-    setPromptInput('');
+  async function inviteUser() {
+    setError('');
+    if (!invite.email || !invite.name) { setError('Email and name are required'); return; }
+    if (!isValidDomain(invite.email)) { setError('Email domain not allowed. Must be an institutional address.'); return; }
+
+    setInviting(true);
+    try {
+      const res = await fetch(API + '/api/users/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(invite),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setSuccess(`Invitation sent to ${invite.email}`);
+      setInvite({ email: '', name: '', role: 'student' });
+      setShowInvite(false);
+      fetchUsers();
+    } catch (err) {
+      setError(err.message);
+    }
+    setInviting(false);
   }
 
-  const sessionUrl = typeof window !== 'undefined' ? window.location.origin + '/session/' + id : '';
+  async function deactivateUser(userId) {
+    if (!confirm('Deactivate this user? They will no longer be able to log in.')) return;
+    await supabase.from('users').update({ role: 'student', can_manage_users: false }).eq('id', userId);
+    fetchUsers();
+  }
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    router.push('/login');
+  }
+
+  const roleColor = (role) => role === 'super_admin' ? '#8b3a2a' : role === 'staff' ? '#8b6914' : '#2d6a4f';
+  const roleLabel = (role) => role === 'super_admin' ? 'Super Admin' : role === 'staff' ? 'Staff' : 'Student';
 
   return (
     <div style={{ minHeight: '100vh', background: '#faf8f3', fontFamily: "'Crimson Pro', Georgia, serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; }
-        .panel { background: #fff; border: 1px solid #e8e0d0; border-radius: 4px; padding: 1.5rem; margin-bottom: 1rem; }
-        .label { font-size: 0.68rem; font-family: 'DM Mono', monospace; color: #8b7355; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 0.75rem; }
         .btn { border: none; border-radius: 3px; cursor: pointer; font-family: 'Crimson Pro', Georgia, serif; font-size: 0.95rem; padding: 0.6rem 1.25rem; transition: all 0.2s; }
         .btn-dark { background: #1a1208; color: #f5edd8; }
         .btn-dark:hover { background: #2d1f0a; }
-        .btn-green { background: #2d6a4f; color: #fff; }
-        .btn-green:hover { background: #245a41; }
-        .btn-red { background: #8b3a2a; color: #fff; }
-        .btn-red:hover { background: #7a3224; }
         .btn-outline { background: transparent; border: 1px solid #d4c9b0; color: #5c4a1e; }
-        .btn-outline:hover { border-color: #8b6914; color: #1a1208; }
-        .input { width: 100%; padding: 0.6rem 0.875rem; border: 1px solid #d4c9b0; border-radius: 3px; font-family: 'Crimson Pro', Georgia, serif; font-size: 1rem; color: #1a1208; background: #fdfaf4; outline: none; }
+        .btn-outline:hover { border-color: #8b6914; }
+        .input { width: 100%; padding: 0.7rem 1rem; border: 1px solid #d4c9b0; border-radius: 3px; font-family: 'Crimson Pro', Georgia, serif; font-size: 1rem; color: #1a1208; background: #fdfaf4; outline: none; transition: border-color 0.2s; }
         .input:focus { border-color: #8b6914; }
-        .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #2d6a4f; animation: livepulse 1.5s ease-in-out infinite; display: inline-block; }
-        @keyframes livepulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.5; transform:scale(0.8); } }
-        .utterance { padding: 0.6rem 0; border-bottom: 1px solid #f0e8d8; display: flex; gap: 0.875rem; align-items: flex-start; animation: fadeup 0.3s ease; }
-        @keyframes fadeup { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
-        .upload-zone { border: 2px dashed #d4c9b0; border-radius: 4px; padding: 1.25rem; text-align: center; cursor: pointer; transition: all 0.2s; }
-        .upload-zone:hover { border-color: #8b6914; background: #fdfaf4; }
+        .user-row { display: grid; grid-template-columns: 1fr 140px 120px 160px 80px; gap: 1rem; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid #f0e8d8; transition: background 0.15s; }
+        .user-row:hover { background: #fdfaf4; }
       `}</style>
 
       {/* Header */}
       <header style={{ borderBottom: '1px solid #e8e0d0', background: '#fff', padding: '0 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '64px', position: 'sticky', top: 0, zIndex: 100 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           <button onClick={() => router.push('/')} className="btn btn-outline" style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>← Sessions</button>
-          <div>
-            <span style={{ fontSize: '1rem', fontWeight: '500', color: '#1a1208' }}>{session?.title || 'Loading...'}</span>
-            {status === 'active' && (
-              <span style={{ marginLeft: '0.75rem' }}>
-                <span className="live-dot" />
-                <span style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#2d6a4f', marginLeft: '5px', letterSpacing: '0.08em' }}>LIVE</span>
-              </span>
-            )}
-          </div>
+          <span style={{ fontSize: '1.1rem', fontWeight: '500', color: '#1a1208' }}>User Management</span>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          {status === 'pending' && (
-            <button className="btn btn-green" onClick={startSession} disabled={starting}>
-              {starting ? 'Starting...' : '▶ Start Session'}
-            </button>
-          )}
-          {status === 'active' && (
-            <button className="btn btn-red" onClick={endSession} disabled={ending}>
-              {ending ? 'Generating Report...' : '■ End & Generate Report'}
-            </button>
-          )}
+          {currentUser && <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{currentUser.name}</span>}
+          <button className="btn btn-outline" onClick={handleSignOut} style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>Sign Out</button>
+          <button className="btn btn-dark" onClick={() => setShowInvite(true)}>+ Invite User</button>
         </div>
       </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.25rem', maxWidth: '1300px', margin: '0 auto', padding: '1.5rem' }}>
+      <main style={{ maxWidth: '1100px', margin: '0 auto', padding: '2rem' }}>
 
-        {/* LEFT */}
-        <div>
-          {/* Session info + link */}
-          <div className="panel">
-            <p className="label">Session Details</p>
-            <p style={{ fontSize: '1.05rem', color: '#2a1f0e', marginBottom: '0.25rem', fontStyle: 'italic' }}>{session?.topic}</p>
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.78rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', background: '#faf8f3', border: '1px solid #e8e0d0', borderRadius: '3px', padding: '0.35rem 0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {sessionUrl}
-              </span>
-              <button className="btn btn-outline" style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', flexShrink: 0 }}
-                onClick={() => { navigator.clipboard.writeText(sessionUrl); }}>
-                Copy Link
-              </button>
+        {/* Stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
+          {[
+            { label: 'Total Users', value: users.length },
+            { label: 'Staff', value: users.filter(u => u.role === 'staff' || u.role === 'super_admin').length },
+            { label: 'Students', value: users.filter(u => u.role === 'student').length },
+          ].map((s, i) => (
+            <div key={i} style={{ background: '#fff', border: '1px solid #e8e0d0', borderRadius: '4px', padding: '1.25rem 1.5rem' }}>
+              <div style={{ fontSize: '2rem', fontWeight: '400', color: '#1a1208', fontFamily: "'DM Mono', monospace", marginBottom: '0.25rem' }}>{s.value}</div>
+              <div style={{ fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{s.label}</div>
             </div>
-          </div>
+          ))}
+        </div>
 
-          {/* Materials */}
-          <div className="panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem' }}>
-              <p className="label" style={{ marginBottom: 0 }}>Materials ({materials.length})</p>
-              <div>
-                <input type="file" accept=".pdf" ref={fileRef} onChange={uploadPDF} style={{ display: 'none' }} />
-                <button className="btn btn-outline" style={{ fontSize: '0.8rem', padding: '0.35rem 0.875rem' }}
-                  onClick={() => fileRef.current?.click()} disabled={uploading}>
-                  {uploading ? 'Uploading...' : '+ Upload PDF'}
-                </button>
+        {/* Invite Modal */}
+        {showInvite && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, backdropFilter: 'blur(4px)' }}>
+            <div style={{ background: '#fdfaf4', border: '1px solid #d4c9b0', borderRadius: '6px', padding: '2.5rem', width: '100%', maxWidth: '460px' }}>
+              <h2 style={{ fontSize: '1.6rem', fontWeight: '400', color: '#1a1208', marginBottom: '0.5rem' }}>Invite User</h2>
+              <p style={{ color: '#8b7355', fontSize: '0.9rem', marginBottom: '2rem' }}>They'll receive an email to set their password.</p>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Full Name</label>
+                <input className="input" placeholder="e.g. Sarah Johnson" value={invite.name} onChange={e => setInvite(i => ({ ...i, name: e.target.value }))} autoFocus />
               </div>
-            </div>
-
-            {materials.length === 0 ? (
-              <div className="upload-zone" onClick={() => fileRef.current?.click()}>
-                <p style={{ fontSize: '0.9rem', color: '#a89878', marginBottom: '0.25rem' }}>Drop a PDF here or click to upload</p>
-                <p style={{ fontSize: '0.75rem', color: '#c9b890', fontFamily: "'DM Mono', monospace" }}>Max 20MB · PDF only</p>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Institutional Email</label>
+                <input className="input" type="email" placeholder="name@university.edu" value={invite.email} onChange={e => setInvite(i => ({ ...i, email: e.target.value }))} />
               </div>
-            ) : (
-              <>
-                {materials.map(m => (
-                  <MaterialCard key={m.id} material={m} onDelete={deleteMaterial} />
-                ))}
-                <button className="upload-zone" style={{ width: '100%', marginTop: '0.5rem', background: 'none', fontFamily: 'inherit', cursor: 'pointer' }}
-                  onClick={() => fileRef.current?.click()}>
-                  <span style={{ fontSize: '0.82rem', color: '#a89878' }}>+ Add another PDF</span>
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Live Transcript */}
-          <div className="panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <p className="label" style={{ marginBottom: 0 }}>Live Transcript</p>
-              <span style={{ fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{utteranceCount} utterances</span>
-            </div>
-            <div style={{ height: '300px', overflowY: 'auto', paddingRight: '0.25rem' }}>
-              {transcripts.length === 0 ? (
-                <p style={{ fontSize: '0.9rem', color: '#a89878', fontStyle: 'italic', textAlign: 'center', paddingTop: '4rem' }}>
-                  {status === 'active' ? 'Waiting for speech...' : 'Start session to see transcript'}
-                </p>
-              ) : (
-                transcripts.map((t, i) => (
-                  <div key={i} className="utterance">
-                    <span style={{ fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', flexShrink: 0, paddingTop: '3px', minWidth: '65px' }}>{t.speakerTag}</span>
-                    <span style={{ fontSize: '0.92rem', color: '#2a1f0e', lineHeight: 1.5 }}>{t.utterance}</span>
-                  </div>
-                ))
-              )}
-              <div ref={transcriptEndRef} />
-            </div>
-          </div>
-
-          {/* Issue Prompt */}
-          {status === 'active' && (
-            <div className="panel">
-              <p className="label">Issue Facilitation Prompt</p>
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <select value={promptTarget} onChange={e => setPromptTarget(e.target.value)}
-                  style={{ padding: '0.6rem 0.875rem', border: '1px solid #d4c9b0', borderRadius: '3px', fontFamily: "'Crimson Pro', Georgia, serif", fontSize: '0.95rem', color: '#1a1208', background: '#fdfaf4', outline: 'none' }}>
-                  <option value="group">Group</option>
-                  {scores.map(s => <option key={s.speaker_tag} value={s.speaker_tag}>{s.speaker_tag}</option>)}
+              <div style={{ marginBottom: '2rem' }}>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Role</label>
+                <select className="input" value={invite.role} onChange={e => setInvite(i => ({ ...i, role: e.target.value }))}>
+                  <option value="student">Student</option>
+                  <option value="staff">Staff</option>
+                  {currentUser?.role === 'super_admin' && <option value="super_admin">Super Admin</option>}
                 </select>
-                <input className="input" placeholder="Type a facilitation prompt..." value={promptInput}
-                  onChange={e => setPromptInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && issuePrompt()} />
-                <button className="btn btn-dark" onClick={issuePrompt} style={{ flexShrink: 0 }}>Issue</button>
+              </div>
+
+              {error && <div style={{ background: 'rgba(139,58,42,0.1)', border: '1px solid rgba(139,58,42,0.3)', borderRadius: '3px', padding: '0.75rem 1rem', marginBottom: '1rem' }}><p style={{ fontSize: '0.85rem', color: '#8b3a2a', fontFamily: "'DM Mono', monospace" }}>{error}</p></div>}
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button className="btn btn-dark" onClick={inviteUser} disabled={inviting} style={{ flex: 1 }}>{inviting ? 'Sending...' : 'Send Invitation'}</button>
+                <button className="btn btn-outline" onClick={() => { setShowInvite(false); setError(''); }}>Cancel</button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* RIGHT */}
-        <div>
-          {/* Live Scores */}
-          <div className="panel">
-            <p className="label">Participant Scores</p>
-            {scores.length === 0 ? (
-              <p style={{ fontSize: '0.88rem', color: '#a89878', fontStyle: 'italic' }}>
-                {status === 'active' ? 'Scores appear as participants speak...' : 'No scores yet'}
-              </p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                {scores.map((s, i) => (
-                  <div key={i} style={{ paddingBottom: '1.25rem', borderBottom: i < scores.length - 1 ? '1px solid #f0e8d8' : 'none' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
-                      <span style={{ fontSize: '1rem', fontWeight: '500', color: '#1a1208' }}>{s.speaker_tag}</span>
-                      <span style={{ fontSize: '1.4rem', fontFamily: "'DM Mono', monospace", fontWeight: '500', color: s.overall_score >= 7 ? '#2d6a4f' : s.overall_score >= 4 ? '#8b6914' : '#8b3a2a' }}>
-                        {s.overall_score?.toFixed(1) || '—'}
-                      </span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                      <MiniScore label="Topic" value={s.topic_adherence} />
-                      <MiniScore label="Depth" value={s.depth} />
-                      <MiniScore label="Material" value={s.material_application} />
-                    </div>
-                    {s.bloom_level && <BloomPip level={s.bloom_level} />}
-                    {s.participation_stats && (
-                      <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>
-                        {s.participation_stats.utteranceCount} utterances · {Math.round(s.participation_stats.talkTimeSeconds)}s
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+        {success && (
+          <div style={{ background: 'rgba(45,106,79,0.1)', border: '1px solid rgba(45,106,79,0.3)', borderRadius: '4px', padding: '1rem 1.25rem', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.9rem', color: '#2d6a4f', fontFamily: "'DM Mono', monospace" }}>{success}</span>
+            <button onClick={() => setSuccess('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2d6a4f', fontSize: '1.1rem' }}>×</button>
+          </div>
+        )}
+
+        {/* Users Table */}
+        <div style={{ background: '#fff', border: '1px solid #e8e0d0', borderRadius: '4px', overflow: 'hidden' }}>
+          {/* Table header */}
+          <div className="user-row" style={{ background: '#faf8f3', borderBottom: '2px solid #e8e0d0' }}>
+            {['Name / Email', 'Role', 'Status', 'Joined', 'Actions'].map(h => (
+              <span key={h} style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{h}</span>
+            ))}
           </div>
 
-          {/* AI Suggestions */}
-          {prompts.length > 0 && (
-            <div className="panel">
-              <p className="label">AI Suggestions</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {prompts.slice(0, 5).map(p => (
-                  <div key={p.id} style={{
-                    background: p.type === 'issued' ? '#f0f7f3' : '#fdfaf4',
-                    border: '1px solid ' + (p.type === 'issued' ? '#c8e0d4' : '#e8d9b8'),
-                    borderRadius: '3px', padding: '0.875rem 1rem',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-                      <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: p.type === 'issued' ? '#2d6a4f' : '#8b6914', letterSpacing: '0.08em' }}>
-                        {p.type === 'issued' ? 'ISSUED' : 'SUGGESTED'} → {p.target}
-                      </span>
-                      {p.flag && <span style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{p.flag}</span>}
-                    </div>
-                    <p style={{ fontSize: '0.875rem', color: '#2a1f0e', lineHeight: 1.5, marginBottom: p.type === 'suggestion' ? '0.5rem' : 0 }}>{p.prompt}</p>
-                    {p.type === 'suggestion' && (
-                      <button className="btn btn-dark" style={{ fontSize: '0.78rem', padding: '0.3rem 0.75rem' }}
-                        onClick={() => { setPromptInput(p.prompt); setPromptTarget(p.target); }}>
-                        Use this prompt
-                      </button>
-                    )}
-                  </div>
-                ))}
+          {loading ? (
+            <div style={{ padding: '3rem', textAlign: 'center', color: '#8b7355', fontStyle: 'italic' }}>Loading users...</div>
+          ) : users.length === 0 ? (
+            <div style={{ padding: '3rem', textAlign: 'center', color: '#8b7355', fontStyle: 'italic' }}>No users yet. Invite someone to get started.</div>
+          ) : (
+            users.map(u => (
+              <div key={u.id} className="user-row">
+                <div>
+                  <div style={{ fontSize: '1rem', fontWeight: '500', color: '#1a1208', marginBottom: '0.1rem' }}>{u.name}</div>
+                  <div style={{ fontSize: '0.78rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{u.email}</div>
+                </div>
+                <span style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", letterSpacing: '0.06em', textTransform: 'uppercase', padding: '0.2rem 0.5rem', borderRadius: '2px', background: roleColor(u.role) + '18', color: roleColor(u.role), border: '1px solid ' + roleColor(u.role) + '40', display: 'inline-block' }}>
+                  {roleLabel(u.role)}
+                </span>
+                <span style={{ fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>Active</span>
+                <span style={{ fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>
+                  {new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {u.id !== currentUser?.id && u.role !== 'super_admin' && (
+                    <button onClick={() => deactivateUser(u.id)} style={{ background: 'none', border: '1px solid #e0c8c4', borderRadius: '2px', padding: '0.2rem 0.5rem', cursor: 'pointer', color: '#8b3a2a', fontSize: '0.7rem', fontFamily: "'DM Mono', monospace" }}>Remove</button>
+                  )}
+                </div>
               </div>
-            </div>
+            ))
           )}
         </div>
-      </div>
+      </main>
     </div>
   );
 }
