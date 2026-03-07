@@ -37,25 +37,28 @@ function AudioStreamer({ sessionId, participantName }) {
         audioWsRef.current = audioWs;
 
         audioWs.onopen = () => {
-          console.log('[Audio] Connected');
-          let mimeType = '';
-          if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-            mimeType = 'audio/webm;codecs=opus';
-          } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-            mimeType = 'audio/webm';
-          }
-          const opts = mimeType ? { mimeType } : {};
-          const recorder = new MediaRecorder(stream, opts);
-          mediaRecorderRef.current = recorder;
-          recorder.ondataavailable = (ev) => {
-            if (ev.data.size > 0 && audioWs.readyState === WebSocket.OPEN) {
-              audioWs.send(ev.data);
-              console.log('[Audio] Chunk sent:', ev.data.size);
-            }
-          };
-          recorder.start(250);
-          console.log('[Audio] Recording started');
-        };
+  console.log('[Audio] Connected, starting PCM capture');
+  const audioContext = new AudioContext({ sampleRate: 16000 });
+  const source = audioContext.createMediaStreamSource(stream);
+  const processor = audioContext.createScriptProcessor(4096, 1, 1);
+  
+  source.connect(processor);
+  processor.connect(audioContext.destination);
+  
+  processor.onaudioprocess = (e) => {
+    if (audioWs.readyState !== WebSocket.OPEN) return;
+    const float32 = e.inputBuffer.getChannelData(0);
+    const int16 = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
+    }
+    audioWs.send(int16.buffer);
+    console.log('[Audio] PCM chunk sent:', int16.buffer.byteLength);
+  };
+  
+  mediaRecorderRef.current = { stop: () => { processor.disconnect(); source.disconnect(); audioContext.close(); } };
+  console.log('[Audio] PCM streaming started');
+};
 
         audioWs.onmessage = (e) => console.log('[Audio] Server:', e.data);
         audioWs.onerror = (e) => { console.error('[Audio] WS error', e); streamingRef.current = false; };
