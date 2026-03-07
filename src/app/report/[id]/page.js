@@ -116,7 +116,7 @@ export default function ReportPage() {
             </span>
             {duration && <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{duration} min</span>}
             <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{transcripts?.length || 0} utterances</span>
-            <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{scores?.length || 0} participant{scores?.length !== 1 ? 's' : ''}</span>
+            <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{Object.keys(report.individual_insights || {}).length} participant{Object.keys(report.individual_insights || {}).length !== 1 ? 's' : ''}</span>
           </div>
         </div>
 
