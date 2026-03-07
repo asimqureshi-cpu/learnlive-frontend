@@ -176,7 +176,7 @@ export default function AdminPage() {
           const updated = matData.find(m => m.id === data.material.id);
           if (updated?.metadata || attempts >= 10) {
             clearInterval(poll);
-            setMaterials(matData);
+            setMaterials(Array.isArray(matData) ? matData : []);
           }
         }, 3000);
       }
