@@ -19,6 +19,8 @@ export async function middleware(req) {
   );
 
   const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabase.auth.getSession();
+console.log('[Middleware] path:', path, 'session:', !!session);
   const path = req.nextUrl.pathname;
 
   if (PUBLIC_ROUTES.some(r => path.startsWith(r))) return res;
