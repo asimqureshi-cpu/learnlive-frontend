@@ -187,3 +187,19 @@ export default function HomePage() {
                   </button>
                   <span style={{ color: '#c9b890' }}>→</span>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {sessions.length > 0 && (
+          <div style={{ marginTop: '3rem', paddingTop: '2rem', borderTop: '1px solid #e8e0d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.82rem', color: '#a89878', fontFamily: "'DM Mono', monospace" }}>{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
+            <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Session</button>
+          </div>
+        )}
+      </main>
+      <PoweredBy />
+    </div>
+  );
+}
