@@ -64,6 +64,21 @@ function MaterialCard({ material, onDelete }) {
   );
 }
 
+
+function PoweredBy() {
+  return (
+    <div style={{ position: 'fixed', bottom: '1rem', right: '1.25rem', zIndex: 50, opacity: 0.35, transition: 'opacity 0.2s' }}
+      onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+      onMouseLeave={e => e.currentTarget.style.opacity = '0.35'}>
+      <a href="https://thebrainsyndicate.com" target="_blank" rel="noopener noreferrer"
+        style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', textDecoration: 'none' }}>
+        <span style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Powered by</span>
+        <span style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', fontWeight: '500', letterSpacing: '0.06em' }}>The Brain Syndicate</span>
+      </a>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -356,6 +371,7 @@ export default function AdminPage() {
           )}
         </div>
       </div>
+      <PoweredBy />
     </div>
   );
 }
