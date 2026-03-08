@@ -1,7 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 const API = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 function ScoreRing({ value, max = 10, label, size = 80 }) {
@@ -10,19 +15,12 @@ function ScoreRing({ value, max = 10, label, size = 80 }) {
   const circ = 2 * Math.PI * r;
   const dash = circ * pct;
   const color = value >= 7 ? '#2d6a4f' : value >= 4 ? '#8b6914' : '#8b3a2a';
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem' }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e8e0d0" strokeWidth="6" />
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="6"
-          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
-          style={{ transition: 'stroke-dasharray 1s ease' }} />
-        <text x={size/2} y={size/2} textAnchor="middle" dominantBaseline="central"
-          style={{ transform: 'rotate(90deg)', transformOrigin: `${size/2}px ${size/2}px` }}
-          fill="#1a1208" fontSize="16" fontFamily="'DM Mono', monospace" fontWeight="500">
-          {value?.toFixed(1) || '—'}
-        </text>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="6" strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 1s ease' }} />
+        <text x={size/2} y={size/2} textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${size/2}px ${size/2}px` }} fill="#1a1208" fontSize="16" fontFamily="'DM Mono', monospace" fontWeight="500">{value?.toFixed(1) || '—'}</text>
       </svg>
       <span style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center' }}>{label}</span>
     </div>
@@ -31,17 +29,12 @@ function ScoreRing({ value, max = 10, label, size = 80 }) {
 
 function BloomBadge({ level }) {
   const levels = { REMEMBER: 1, UNDERSTAND: 2, APPLY: 3, ANALYSE: 4, EVALUATE: 5, CREATE: 6 };
-  const colors = {
-    REMEMBER: '#a89878', UNDERSTAND: '#6b7c8b', APPLY: '#5c7a5e',
-    ANALYSE: '#7a5c8b', EVALUATE: '#8b6914', CREATE: '#8b3a2a'
-  };
+  const colors = { REMEMBER: '#a89878', UNDERSTAND: '#6b7c8b', APPLY: '#5c7a5e', ANALYSE: '#7a5c8b', EVALUATE: '#8b6914', CREATE: '#8b3a2a' };
   const n = levels[level] || 1;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
       <div style={{ display: 'flex', gap: '3px' }}>
-        {[1,2,3,4,5,6].map(i => (
-          <div key={i} style={{ width: '8px', height: '8px', borderRadius: '1px', background: i <= n ? colors[level] : '#e8e0d0' }} />
-        ))}
+        {[1,2,3,4,5,6].map(i => <div key={i} style={{ width: '8px', height: '8px', borderRadius: '1px', background: i <= n ? colors[level] : '#e8e0d0' }} />)}
       </div>
       <span style={{ fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: colors[level] || '#8b7355', letterSpacing: '0.08em' }}>{level || 'UNKNOWN'}</span>
     </div>
@@ -53,13 +46,20 @@ export default function ReportPage() {
   const router = useRouter();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    fetch(API + '/api/reports/' + id)
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { router.push('/login?redirect=/report/' + id); return; }
+      setAuthChecked(true);
+      fetch(API + '/api/reports/' + id)
+        .then(r => r.json())
+        .then(d => { setData(d); setLoading(false); })
+        .catch(() => setLoading(false));
+    });
   }, [id]);
+
+  if (!authChecked) return null;
 
   if (loading) return (
     <div style={{ minHeight: '100vh', background: '#faf8f3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Crimson Pro', Georgia, serif", color: '#8b7355', fontStyle: 'italic', fontSize: '1.2rem' }}>
@@ -76,9 +76,7 @@ export default function ReportPage() {
   );
 
   const { report, session, scores, transcripts } = data;
-  const duration = session.started_at && session.ended_at
-    ? Math.round((new Date(session.ended_at) - new Date(session.started_at)) / 60000)
-    : null;
+  const duration = session.started_at && session.ended_at ? Math.round((new Date(session.ended_at) - new Date(session.started_at)) / 60000) : null;
 
   return (
     <div style={{ minHeight: '100vh', background: '#faf8f3', fontFamily: "'Crimson Pro', Georgia, serif" }}>
@@ -91,11 +89,8 @@ export default function ReportPage() {
         .tag { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 2px; font-size: 0.72rem; font-family: 'DM Mono', monospace; letter-spacing: 0.06em; }
       `}</style>
 
-      {/* Header */}
       <header style={{ borderBottom: '1px solid #e8e0d0', background: '#fff', padding: '0 3rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '72px', position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
-          <button onClick={() => router.push('/')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b7355', fontSize: '0.85rem', fontFamily: "'DM Mono', monospace", letterSpacing: '0.06em' }}>← Sessions</button>
-        </div>
+        <button onClick={() => router.push('/')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b7355', fontSize: '0.85rem', fontFamily: "'DM Mono', monospace", letterSpacing: '0.06em' }}>← Sessions</button>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
           <span style={{ fontSize: '1.3rem', fontWeight: '600', color: '#1a1208' }}>LearnLive</span>
           <span style={{ fontSize: '0.7rem', color: '#8b7355', fontFamily: "'DM Mono', monospace", letterSpacing: '0.1em', textTransform: 'uppercase' }}>Report</span>
@@ -104,29 +99,23 @@ export default function ReportPage() {
       </header>
 
       <main style={{ maxWidth: '860px', margin: '0 auto', padding: '3rem 2rem' }}>
-
-        {/* Title block */}
         <div style={{ marginBottom: '2.5rem', paddingBottom: '2rem', borderBottom: '1px solid #e8e0d0' }}>
           <p className="label">Post-Session Report</p>
           <h1 style={{ fontSize: '2.4rem', fontWeight: '400', color: '#1a1208', letterSpacing: '-0.01em', marginBottom: '0.5rem' }}>{session.title}</h1>
           <p style={{ fontSize: '1.1rem', color: '#6b5b3e', fontStyle: 'italic', marginBottom: '1rem' }}>{session.topic}</p>
           <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>
-              {new Date(session.started_at || session.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-            </span>
+            <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{new Date(session.started_at || session.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
             {duration && <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{duration} min</span>}
             <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{transcripts?.length || 0} utterances</span>
-            <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{Object.keys(report.individual_insights || {}).length} participant{Object.keys(report.individual_insights || {}).length !== 1 ? 's' : ''}</span>
+            <span style={{ fontSize: '0.8rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{scores?.length || 0} participant{scores?.length !== 1 ? 's' : ''}</span>
           </div>
         </div>
 
-        {/* Executive Summary */}
         <div className="section">
           <p className="label">Executive Summary</p>
           <p style={{ fontSize: '1.15rem', lineHeight: 1.7, color: '#2a1f0e', fontWeight: '300' }}>{report.executive_summary}</p>
         </div>
 
-        {/* Group Performance */}
         <div className="section">
           <p className="label">Group Performance</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
@@ -163,7 +152,6 @@ export default function ReportPage() {
           )}
         </div>
 
-        {/* Individual Scorecards */}
         {report.individual_insights && Object.keys(report.individual_insights).length > 0 && (
           <div className="section">
             <p className="label">Individual Scorecards</p>
@@ -209,19 +197,15 @@ export default function ReportPage() {
           </div>
         )}
 
-        {/* Missed Concepts */}
         {report.missed_concepts?.length > 0 && (
           <div className="section">
             <p className="label">Concepts Not Covered</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-              {report.missed_concepts.map((c, i) => (
-                <span key={i} className="tag" style={{ background: '#fdf3f0', color: '#8b3a2a', border: '1px solid #e0c8c4' }}>○ {c}</span>
-              ))}
+              {report.missed_concepts.map((c, i) => <span key={i} className="tag" style={{ background: '#fdf3f0', color: '#8b3a2a', border: '1px solid #e0c8c4' }}>○ {c}</span>)}
             </div>
           </div>
         )}
 
-        {/* Facilitator Notes */}
         {report.facilitator_notes && (
           <div className="section" style={{ background: '#1a1208', border: '1px solid #1a1208' }}>
             <p style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#c9b890', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Facilitator Notes</p>
@@ -229,7 +213,6 @@ export default function ReportPage() {
           </div>
         )}
 
-        {/* Transcript */}
         {transcripts?.length > 0 && (
           <div className="section">
             <p className="label">Session Transcript ({transcripts.length} utterances)</p>
@@ -243,7 +226,6 @@ export default function ReportPage() {
             </div>
           </div>
         )}
-
       </main>
     </div>
   );
