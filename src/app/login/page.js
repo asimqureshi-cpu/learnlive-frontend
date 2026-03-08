@@ -8,6 +8,21 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+
+function PoweredBy() {
+  return (
+    <div style={{ position: 'fixed', bottom: '1rem', right: '1.25rem', zIndex: 50, opacity: 0.35, transition: 'opacity 0.2s' }}
+      onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+      onMouseLeave={e => e.currentTarget.style.opacity = '0.35'}>
+      <a href="https://thebrainsyndicate.com" target="_blank" rel="noopener noreferrer"
+        style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', textDecoration: 'none' }}>
+        <span style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: '#c9b890', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Powered by</span>
+        <span style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#a89878', fontWeight: '500', letterSpacing: '0.06em' }}>The Brain Syndicate</span>
+      </a>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState('login'); // 'login' | 'forgot'
@@ -168,6 +183,7 @@ export default function LoginPage() {
           )}
         </div>
       </div>
+      <PoweredBy />
     </div>
   );
 }
