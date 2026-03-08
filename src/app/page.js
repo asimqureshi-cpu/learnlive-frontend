@@ -10,6 +10,21 @@ const supabase = createClient(
 
 const API = process.env.NEXT_PUBLIC_BACKEND_URL;
 
+
+function PoweredBy() {
+  return (
+    <div style={{ position: 'fixed', bottom: '1rem', right: '1.25rem', zIndex: 50, opacity: 0.35, transition: 'opacity 0.2s' }}
+      onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+      onMouseLeave={e => e.currentTarget.style.opacity = '0.35'}>
+      <a href="https://thebrainsyndicate.com" target="_blank" rel="noopener noreferrer"
+        style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', textDecoration: 'none' }}>
+        <span style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Powered by</span>
+        <span style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', fontWeight: '500', letterSpacing: '0.06em' }}>The Brain Syndicate</span>
+      </a>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -172,18 +187,3 @@ export default function HomePage() {
                   </button>
                   <span style={{ color: '#c9b890' }}>→</span>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {sessions.length > 0 && (
-          <div style={{ marginTop: '3rem', paddingTop: '2rem', borderTop: '1px solid #e8e0d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.82rem', color: '#a89878', fontFamily: "'DM Mono', monospace" }}>{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
-            <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Session</button>
-          </div>
-        )}
-      </main>
-    </div>
-  );
-}
