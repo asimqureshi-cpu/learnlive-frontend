@@ -133,6 +133,7 @@ export default function SessionPage() {
   const [prompts, setPrompts] = useState([]);
   const [authChecked, setAuthChecked] = useState(false);
   const [authUser, setAuthUser] = useState(null);
+  const [sessionInfo, setSessionInfo] = useState(null);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -150,6 +151,11 @@ export default function SessionPage() {
       // Pre-fill name from user metadata if available
       const name = session.user.user_metadata?.name || session.user.email?.split('@')[0] || '';
       setNameInput(name);
+      // Fetch session info for group name
+      fetch(`${API}/api/sessions/${id}`)
+        .then(r => r.json())
+        .then(data => setSessionInfo(data))
+        .catch(() => {});
     });
   }, []);
 
@@ -184,8 +190,16 @@ export default function SessionPage() {
           <div style={{ marginBottom: '2.5rem' }}>
             <span style={{ fontSize: '1.2rem', fontWeight: '600', color: '#c9b890', letterSpacing: '-0.01em' }}>LearnLive</span>
           </div>
-          <h1 style={{ fontSize: '2rem', fontWeight: '300', color: '#f5edd8', marginBottom: '0.5rem' }}>Join Session</h1>
-          <p style={{ fontSize: '0.85rem', color: 'rgba(245,237,216,0.4)', marginBottom: '2rem', fontFamily: "'DM Mono', monospace" }}>Confirm your display name</p>
+          <h1 style={{ fontSize: '2rem', fontWeight: '300', color: '#f5edd8', marginBottom: '0.5rem' }}>{sessionInfo?.title || 'Join Session'}</h1>
+          {sessionInfo?.topic && <p style={{ fontSize: '0.95rem', color: 'rgba(245,237,216,0.5)', marginBottom: '0.75rem', fontStyle: 'italic' }}>{sessionInfo.topic}</p>}
+          {sessionInfo?.group_name ? (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(201,184,144,0.12)', border: '1px solid rgba(201,184,144,0.3)', borderRadius: '4px', padding: '0.4rem 0.875rem', marginBottom: '1.5rem' }}>
+              <span style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: 'rgba(201,184,144,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Group</span>
+              <span style={{ fontSize: '0.9rem', color: '#c9b890', fontWeight: '500' }}>{sessionInfo.group_name}</span>
+            </div>
+          ) : (
+            <p style={{ fontSize: '0.85rem', color: 'rgba(245,237,216,0.4)', marginBottom: '2rem', fontFamily: "'DM Mono', monospace" }}>Confirm your display name</p>
+          )}
           <div style={{ marginBottom: '1.5rem' }}>
             <label style={{ display: 'block', fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: 'rgba(201,184,144,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Your Name</label>
             <input
