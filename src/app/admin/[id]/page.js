@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 
@@ -9,6 +9,7 @@ const supabase = createClient(
 );
 
 const API = process.env.NEXT_PUBLIC_BACKEND_URL;
+const WS_URL_ENV = process.env.NEXT_PUBLIC_WS_URL;
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL;
 
 function MiniScore({ label, value }) {
@@ -31,6 +32,44 @@ function BloomPip({ level }) {
       <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: colors[level] || '#a89878', marginLeft: '4px' }}>{level || '—'}</span>
     </div>
   );
+}
+
+
+// Minimal QR Code component using qrcode library loaded from CDN via useEffect
+function QRCode({ value, size = 120 }) {
+  const canvasRef = React.useRef(null);
+  useEffect(() => {
+    if (!canvasRef.current || !value) return;
+    const script = document.getElementById('qrcode-script');
+    function draw() {
+      if (window.QRCode) {
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, size, size);
+        // Use qrcode-generator approach via QRCode lib
+        new window.QRCode(canvas, {
+          text: value,
+          width: size,
+          height: size,
+          colorDark: '#1a1208',
+          colorLight: '#ffffff',
+          correctLevel: window.QRCode.CorrectLevel.M,
+        });
+      }
+    }
+    if (!script) {
+      const s = document.createElement('script');
+      s.id = 'qrcode-script';
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+      s.onload = draw;
+      document.head.appendChild(s);
+    } else if (window.QRCode) {
+      draw();
+    } else {
+      script.addEventListener('load', draw);
+    }
+  }, [value, size]);
+  return <canvas ref={canvasRef} width={size} height={size} />;
 }
 
 function MaterialCard({ material, onDelete }) {
@@ -260,9 +299,37 @@ export default function AdminPage() {
           <div className="panel">
             <p className="label">Session Details</p>
             <p style={{ fontSize: '1.05rem', color: '#2a1f0e', marginBottom: '0.25rem', fontStyle: 'italic' }}>{session?.topic}</p>
+            {session?.group_name && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.5rem', background: '#fdf8ec', border: '1px solid #e8d9b8', borderRadius: '3px', padding: '0.3rem 0.75rem' }}>
+                <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Group</span>
+                <span style={{ fontSize: '0.9rem', color: '#5c4a1e', fontWeight: '500' }}>{session.group_name}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '0.78rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', background: '#faf8f3', border: '1px solid #e8e0d0', borderRadius: '3px', padding: '0.35rem 0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sessionUrl}</span>
-              <button className="btn btn-outline" style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', flexShrink: 0 }} onClick={() => navigator.clipboard.writeText(sessionUrl)}>Copy Link</button>
+              <button className="btn btn-outline" style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', flexShrink: 0 }} onClick={() => { navigator.clipboard.writeText(sessionUrl); }}>Copy Link</button>
+            </div>
+            {/* QR Code */}
+            <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid #f0e8d8', display: 'flex', alignItems: 'flex-start', gap: '1.25rem' }}>
+              <div>
+                <p style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.6rem' }}>QR Code</p>
+                <div id="qr-container" style={{ background: '#fff', padding: '10px', border: '1px solid #e8e0d0', borderRadius: '4px', display: 'inline-block' }}>
+                  <QRCode value={sessionUrl} size={120} />
+                </div>
+              </div>
+              <div style={{ paddingTop: '1.6rem' }}>
+                <p style={{ fontSize: '0.82rem', color: '#6b5b3e', lineHeight: 1.5, marginBottom: '0.75rem', fontStyle: 'italic' }}>Students scan to join instantly. Project or print for your group.</p>
+                <button className="btn btn-outline" style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
+                  onClick={() => {
+                    const canvas = document.querySelector('#qr-container canvas');
+                    if (canvas) {
+                      const link = document.createElement('a');
+                      link.download = `learnlive-${id}-qr.png`;
+                      link.href = canvas.toDataURL();
+                      link.click();
+                    }
+                  }}>Download QR</button>
+              </div>
             </div>
           </div>
 
