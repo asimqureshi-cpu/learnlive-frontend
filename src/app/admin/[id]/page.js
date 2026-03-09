@@ -35,41 +35,45 @@ function BloomPip({ level }) {
 }
 
 
-// Minimal QR Code component using qrcode library loaded from CDN via useEffect
+// QR Code component — uses qrcodejs via CDN, targets a div
 function QRCode({ value, size = 120 }) {
-  const canvasRef = React.useRef(null);
+  const divRef = React.useRef(null);
+  const instanceRef = React.useRef(null);
+
   useEffect(() => {
-    if (!canvasRef.current || !value) return;
-    const script = document.getElementById('qrcode-script');
+    if (!divRef.current || !value) return;
+
     function draw() {
-      if (window.QRCode) {
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, size, size);
-        // Use qrcode-generator approach via QRCode lib
-        new window.QRCode(canvas, {
-          text: value,
-          width: size,
-          height: size,
-          colorDark: '#1a1208',
-          colorLight: '#ffffff',
-          correctLevel: window.QRCode.CorrectLevel.M,
-        });
-      }
+      if (!divRef.current) return;
+      // Clear previous
+      divRef.current.innerHTML = '';
+      instanceRef.current = new window.QRCode(divRef.current, {
+        text: value,
+        width: size,
+        height: size,
+        colorDark: '#1a1208',
+        colorLight: '#ffffff',
+        correctLevel: window.QRCode.CorrectLevel.M,
+      });
     }
-    if (!script) {
-      const s = document.createElement('script');
-      s.id = 'qrcode-script';
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
-      s.onload = draw;
-      document.head.appendChild(s);
-    } else if (window.QRCode) {
+
+    if (window.QRCode) {
       draw();
     } else {
-      script.addEventListener('load', draw);
+      const existing = document.getElementById('qrcode-script');
+      if (!existing) {
+        const s = document.createElement('script');
+        s.id = 'qrcode-script';
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+        s.onload = draw;
+        document.head.appendChild(s);
+      } else {
+        existing.addEventListener('load', draw);
+      }
     }
   }, [value, size]);
-  return <canvas ref={canvasRef} width={size} height={size} />;
+
+  return <div ref={divRef} style={{ width: size, height: size }} />;
 }
 
 function MaterialCard({ material, onDelete }) {
@@ -324,8 +328,8 @@ export default function AdminPage() {
                     const canvas = document.querySelector('#qr-container canvas');
                     if (canvas) {
                       const link = document.createElement('a');
-                      link.download = `learnlive-${id}-qr.png`;
-                      link.href = canvas.toDataURL();
+                      link.download = 'learnlive-qr.png';
+                      link.href = canvas.toDataURL('image/png');
                       link.click();
                     }
                   }}>Download QR</button>
