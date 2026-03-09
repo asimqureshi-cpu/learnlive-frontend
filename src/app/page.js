@@ -30,7 +30,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', topic: '' });
+  const [form, setForm] = useState({ title: '', topic: '', group_name: '' });
   const [deletingId, setDeletingId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const router = useRouter();
@@ -59,7 +59,7 @@ export default function HomePage() {
       const res = await fetch(API + '/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: form.title, topic: form.topic }),
+        body: JSON.stringify({ title: form.title, topic: form.topic, group_name: form.group_name || null }),
       });
       const data = await res.json();
       router.push('/admin/' + data.id);
@@ -142,13 +142,17 @@ export default function HomePage() {
                 <label style={{ display: 'block', fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Session Title</label>
                 <input className="input-field" placeholder="e.g. Week 4 — Ethical Frameworks" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} autoFocus />
               </div>
-              <div style={{ marginBottom: '2rem' }}>
+              <div style={{ marginBottom: '1.25rem' }}>
                 <label style={{ display: 'block', fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Discussion Topic</label>
-                <input className="input-field" placeholder="e.g. Kantian Ethics and moral duty" value={form.topic} onChange={e => setForm(f => ({ ...f, topic: e.target.value }))} onKeyDown={e => e.key === 'Enter' && createSession()} />
+                <input className="input-field" placeholder="e.g. Kantian Ethics and moral duty" value={form.topic} onChange={e => setForm(f => ({ ...f, topic: e.target.value }))} />
+              </div>
+              <div style={{ marginBottom: '2rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Group <span style={{ fontFamily: "'Crimson Pro', Georgia, serif", textTransform: 'none', letterSpacing: 0, color: '#a89878', fontWeight: 300 }}>(optional)</span></label>
+                <input className="input-field" placeholder="e.g. Section A, Breakout 3" value={form.group_name} onChange={e => setForm(f => ({ ...f, group_name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && createSession()} />
               </div>
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <button className="btn-primary" onClick={createSession} disabled={creating} style={{ flex: 1 }}>{creating ? 'Creating...' : 'Create Session'}</button>
-                <button className="btn-secondary" onClick={() => { setShowForm(false); setForm({ title: '', topic: '' }); }}>Cancel</button>
+                <button className="btn-secondary" onClick={() => { setShowForm(false); setForm({ title: '', topic: '', group_name: '' }); }}>Cancel</button>
               </div>
             </div>
           </div>
@@ -172,6 +176,7 @@ export default function HomePage() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '1.05rem', fontWeight: '500', color: '#1a1208', marginBottom: '0.15rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</div>
                     <div style={{ fontSize: '0.88rem', color: '#6b5b3e', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.topic}</div>
+                    {s.group_name && <div style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', marginTop: '0.2rem' }}>⬡ {s.group_name}</div>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexShrink: 0, marginLeft: '1rem' }}>
