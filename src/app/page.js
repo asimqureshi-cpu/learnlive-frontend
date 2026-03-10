@@ -36,9 +36,19 @@ export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return; }
-      setCurrentUser(session.user);
+      // Check role — students should not see this page
+      const { data: userRow } = await supabase
+        .from('users')
+        .select('role, can_manage_users')
+        .eq('email', session.user.email)
+        .single();
+      if (!userRow || userRow.role === 'student') {
+        router.push('/student');
+        return;
+      }
+      setCurrentUser({ ...session.user, role: userRow.role, can_manage_users: userRow.can_manage_users });
       fetchSessions();
     });
   }, []);
@@ -114,7 +124,7 @@ export default function HomePage() {
           <span style={{ fontSize: '0.75rem', color: '#8b7355', fontFamily: "'DM Mono', monospace", letterSpacing: '0.1em', textTransform: 'uppercase' }}>Academic</span>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          <button className="btn-outline" onClick={() => router.push('/admin/users')}>Users</button>
+          {currentUser?.role === 'super_admin' && <button className="btn-outline" onClick={() => router.push('/admin/users')}>Users</button>}
           <button className="btn-outline" onClick={handleSignOut}>Sign Out</button>
           <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Session</button>
         </div>
