@@ -46,19 +46,23 @@ export default function LoginPage() {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      // Check role and redirect
-      const { data: user } = await supabase
+      // Fetch role from public users table
+      const { data: userRow } = await supabase
         .from('users')
         .select('role')
         .eq('email', email)
         .single();
-      if (user?.role === 'student') {
-        // Students redirected to session if they came from a link
-        const redirect = sessionStorage.getItem('redirectAfterLogin');
-        sessionStorage.removeItem('redirectAfterLogin');
-        router.push(redirect || '/');
-      } else {
+      const role = userRow?.role;
+      if (role === 'student') {
+        // Students go back to their session link if they came from one, else student landing
+        const redirect = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('redirectAfterLogin') : null;
+        if (redirect) sessionStorage.removeItem('redirectAfterLogin');
+        router.push(redirect || '/student');
+      } else if (role === 'staff' || role === 'super_admin') {
         router.push('/');
+      } else {
+        // Unknown role — send to student landing as safe default
+        router.push('/student');
       }
     } catch (err) {
       setError(err.message || 'Invalid email or password');
