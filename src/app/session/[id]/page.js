@@ -127,6 +127,7 @@ export default function SessionPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [token, setToken] = useState('');
+  const [liveKitUrl, setLiveKitUrl] = useState('');
   const [participantName, setParticipantName] = useState('');
   const [nameInput, setNameInput] = useState('');
   const [joined, setJoined] = useState(false);
@@ -170,6 +171,7 @@ export default function SessionPage() {
       });
       const data = await res.json();
       setToken(data.token);
+      setLiveKitUrl(data.url);
       setParticipantName(name);
       // Connect WebSocket
       const ws = new WebSocket(`${WS_URL}/ws?sessionId=${id}&participantName=${encodeURIComponent(name)}`);
@@ -241,7 +243,7 @@ export default function SessionPage() {
       `}</style>
       <LiveKitRoom
         token={token}
-        serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
+        serverUrl={liveKitUrl}
         connect={true}
         video={true}
         audio={false}
