@@ -34,9 +34,15 @@ function LoginPageInner() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // If already logged in, redirect
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) router.push('/');
+    // If already logged in, respect redirect param or route by role
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) return;
+      const urlRedirect = searchParams.get('redirect');
+      if (urlRedirect) { router.push(urlRedirect); return; }
+      // No redirect param — route by role
+      const { data: userRow } = await supabase.from('users').select('role').eq('email', session.user.email).single();
+      if (userRow?.role === 'student') router.push('/student');
+      else router.push('/');
     });
   }, []);
 
