@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -23,8 +23,9 @@ function PoweredBy() {
   );
 }
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [mode, setMode] = useState('login'); // 'login' | 'forgot'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -55,9 +56,12 @@ export default function LoginPage() {
       const role = userRow?.role;
       if (role === 'student') {
         // Students go back to their session link if they came from one, else student landing
-        const redirect = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('redirectAfterLogin') : null;
-        if (redirect) sessionStorage.removeItem('redirectAfterLogin');
-        router.push(redirect || '/student');
+        // URL param takes priority (set by QR code / direct link), then sessionStorage
+        const urlRedirect = searchParams.get('redirect');
+        const storedRedirect = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('redirectAfterLogin') : null;
+        if (storedRedirect) sessionStorage.removeItem('redirectAfterLogin');
+        const destination = urlRedirect || storedRedirect || '/student';
+        router.push(destination);
       } else if (role === 'staff' || role === 'super_admin') {
         router.push('/');
       } else {
@@ -189,5 +193,13 @@ export default function LoginPage() {
       </div>
       <PoweredBy />
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageInner />
+    </Suspense>
   );
 }
