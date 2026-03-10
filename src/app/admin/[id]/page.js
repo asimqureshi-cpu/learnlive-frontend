@@ -143,8 +143,18 @@ export default function AdminPage() {
   const fileRef = useRef(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: authSession } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: authSession } }) => {
       if (!authSession) { router.push('/login?redirect=/admin/' + id); return; }
+      // Students cannot access admin
+      const { data: userRow } = await supabase
+        .from('users')
+        .select('role')
+        .eq('email', authSession.user.email)
+        .single();
+      if (!userRow || userRow.role === 'student') {
+        router.push('/student');
+        return;
+      }
       setAuthChecked(true);
       fetchSession();
     });
