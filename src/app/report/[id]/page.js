@@ -64,8 +64,18 @@ export default function ReportPage() {
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login?redirect=/report/' + id); return; }
+      // Students cannot access reports
+      const { data: userRow } = await supabase
+        .from('users')
+        .select('role')
+        .eq('email', session.user.email)
+        .single();
+      if (!userRow || userRow.role === 'student') {
+        router.push('/student');
+        return;
+      }
       setAuthChecked(true);
       fetch(API + '/api/reports/' + id)
         .then(r => r.json())
