@@ -187,7 +187,8 @@ export default function UsersPage() {
                 <label style={{ display: 'block', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Role</label>
                 <select className="input" value={invite.role} onChange={e => setInvite(i => ({ ...i, role: e.target.value }))}>
                   <option value="student">Student</option>
-                  <option value="staff">Staff</option>
+                  {currentUser?.role === 'super_admin' && <option value="staff">Staff</option>}
+                  {currentUser?.role === 'super_admin' && <option value="super_admin">Super Admin</option>}
                   {currentUser?.role === 'super_admin' && <option value="super_admin">Super Admin</option>}
                 </select>
               </div>
