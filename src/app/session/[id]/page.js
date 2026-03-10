@@ -163,7 +163,11 @@ export default function SessionPage() {
     const name = nameInput.trim();
     if (!name) return;
     try {
-      const res = await fetch(`${API}/api/livekit/token?room=${id}&participant=${encodeURIComponent(name)}`);
+      const res = await fetch(`${API}/api/livekit/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomName: id, participantName: name, isAdmin: false }),
+      });
       const data = await res.json();
       setToken(data.token);
       setParticipantName(name);
@@ -177,7 +181,10 @@ export default function SessionPage() {
         }
       };
       setJoined(true);
-    } catch (err) { console.error(err); alert('Failed to join session'); }
+    } catch (err) {
+      console.error('[Join error]', err);
+      alert('Failed to join session: ' + (err?.message || String(err)));
+    }
   }
 
   if (!authChecked) return null;
