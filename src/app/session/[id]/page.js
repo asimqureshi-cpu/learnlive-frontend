@@ -241,7 +241,7 @@ export default function SessionPage() {
       `}</style>
       <LiveKitRoom
         token={token}
-        serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://learnlive-xjb0rwmd.livekit.cloud'}
+        serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
         connect={true}
         video={true}
         audio={false}
