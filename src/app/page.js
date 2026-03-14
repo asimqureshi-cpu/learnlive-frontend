@@ -10,7 +10,6 @@ const supabase = createClient(
 
 const API = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-
 function PoweredBy() {
   return (
     <div style={{ position: 'fixed', bottom: '1rem', right: '1.25rem', zIndex: 50, opacity: 0.35, transition: 'opacity 0.2s' }}
@@ -28,9 +27,6 @@ function PoweredBy() {
 export default function HomePage() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', topic: '', group_name: '' });
   const [deletingId, setDeletingId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const router = useRouter();
@@ -38,16 +34,12 @@ export default function HomePage() {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return; }
-      // Check role — students should not see this page
       const { data: userRow } = await supabase
         .from('users')
         .select('role, can_manage_users')
         .eq('email', session.user.email)
         .single();
-      if (!userRow || userRow.role === 'student') {
-        router.push('/student');
-        return;
-      }
+      if (!userRow || userRow.role === 'student') { router.push('/student'); return; }
       setCurrentUser({ ...session.user, role: userRow.role, can_manage_users: userRow.can_manage_users });
       fetchSessions();
     });
@@ -60,21 +52,6 @@ export default function HomePage() {
       setSessions(Array.isArray(data) ? data : []);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
-  }
-
-  async function createSession() {
-    if (!form.title.trim() || !form.topic.trim()) return;
-    setCreating(true);
-    try {
-      const res = await fetch(API + '/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: form.title, topic: form.topic, group_name: form.group_name || null }),
-      });
-      const data = await res.json();
-      router.push('/admin/' + data.id);
-    } catch (err) { alert('Failed to create session'); }
-    setCreating(false);
   }
 
   async function deleteSession(e, sessionId) {
@@ -96,6 +73,11 @@ export default function HomePage() {
   const statusColor = (s) => s === 'active' ? '#2d6a4f' : s === 'completed' ? '#5c4a1e' : '#4a4a4a';
   const statusLabel = (s) => s === 'active' ? 'Live' : s === 'completed' ? 'Completed' : 'Pending';
 
+  function sessionDestination(s) {
+    if (s.status === 'completed') return '/report/' + s.id;
+    return '/admin/' + s.id;
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: '#faf8f3', fontFamily: "'Crimson Pro', Georgia, serif" }}>
       <style>{`
@@ -108,13 +90,8 @@ export default function HomePage() {
         .delete-btn:hover { background: #fdf3f0; }
         .btn-primary { background: #1a1208; color: #f5edd8; border: none; padding: 0.75rem 1.75rem; font-family: 'Crimson Pro', Georgia, serif; font-size: 1rem; font-weight: 500; cursor: pointer; border-radius: 3px; transition: all 0.2s; letter-spacing: 0.02em; }
         .btn-primary:hover { background: #2d1f0a; }
-        .btn-secondary { background: transparent; color: #5c4a1e; border: 1px solid #c9b890; padding: 0.75rem 1.75rem; font-family: 'Crimson Pro', Georgia, serif; font-size: 1rem; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
-        .btn-secondary:hover { border-color: #8b6914; color: #1a1208; }
         .btn-outline { background: transparent; color: #5c4a1e; border: 1px solid #d4c9b0; padding: 0.4rem 0.875rem; font-family: 'Crimson Pro', Georgia, serif; font-size: 0.85rem; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
         .btn-outline:hover { border-color: #8b6914; color: #1a1208; }
-        .input-field { width: 100%; padding: 0.75rem 1rem; border: 1px solid #d4c9b0; border-radius: 3px; font-family: 'Crimson Pro', Georgia, serif; font-size: 1.05rem; color: #1a1208; background: #fdfaf4; outline: none; transition: border-color 0.2s; }
-        .input-field:focus { border-color: #8b6914; background: #fff; }
-        .input-field::placeholder { color: #a89878; }
         @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
       `}</style>
 
@@ -124,9 +101,12 @@ export default function HomePage() {
           <span style={{ fontSize: '0.75rem', color: '#8b7355', fontFamily: "'DM Mono', monospace", letterSpacing: '0.1em', textTransform: 'uppercase' }}>Academic</span>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          {currentUser?.role === 'super_admin' && <button className="btn-outline" onClick={() => router.push('/admin/users')}>Users</button>}
+          {currentUser?.role === 'super_admin' && (
+            <button className="btn-outline" onClick={() => router.push('/admin/users')}>Users</button>
+          )}
           <button className="btn-outline" onClick={handleSignOut}>Sign Out</button>
-          <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Session</button>
+          {/* Routes to wizard instead of opening modal */}
+          <button className="btn-primary" onClick={() => router.push('/sessions/new')}>+ New Session</button>
         </div>
       </header>
 
@@ -143,42 +123,18 @@ export default function HomePage() {
 
         <div style={{ height: '1px', background: 'linear-gradient(90deg, transparent, #d4c9b0, transparent)', margin: '2rem 0' }} />
 
-        {showForm && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, backdropFilter: 'blur(4px)' }}>
-            <div style={{ background: '#fdfaf4', border: '1px solid #d4c9b0', borderRadius: '6px', padding: '2.5rem', width: '100%', maxWidth: '480px', boxShadow: '0 20px 60px rgba(26,18,8,0.2)' }}>
-              <h2 style={{ fontSize: '1.6rem', fontWeight: '400', color: '#1a1208', marginBottom: '0.5rem' }}>New Session</h2>
-              <p style={{ color: '#8b7355', fontSize: '0.95rem', marginBottom: '2rem' }}>Set the title and discussion topic for this learning session.</p>
-              <div style={{ marginBottom: '1.25rem' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Session Title</label>
-                <input className="input-field" placeholder="e.g. Week 4 — Ethical Frameworks" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} autoFocus />
-              </div>
-              <div style={{ marginBottom: '1.25rem' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Discussion Topic</label>
-                <input className="input-field" placeholder="e.g. Kantian Ethics and moral duty" value={form.topic} onChange={e => setForm(f => ({ ...f, topic: e.target.value }))} />
-              </div>
-              <div style={{ marginBottom: '2rem' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Group <span style={{ fontFamily: "'Crimson Pro', Georgia, serif", textTransform: 'none', letterSpacing: 0, color: '#a89878', fontWeight: 300 }}>(optional)</span></label>
-                <input className="input-field" placeholder="e.g. Section A, Breakout 3" value={form.group_name} onChange={e => setForm(f => ({ ...f, group_name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && createSession()} />
-              </div>
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <button className="btn-primary" onClick={createSession} disabled={creating} style={{ flex: 1 }}>{creating ? 'Creating...' : 'Create Session'}</button>
-                <button className="btn-secondary" onClick={() => { setShowForm(false); setForm({ title: '', topic: '', group_name: '' }); }}>Cancel</button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {loading ? (
           <div style={{ textAlign: 'center', padding: '4rem', color: '#8b7355', fontStyle: 'italic' }}>Loading sessions...</div>
         ) : sessions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem' }}>
-            <p style={{ fontSize: '1.2rem', color: '#8b7355', fontStyle: 'italic', marginBottom: '1rem' }}>No sessions yet</p>
-            <button className="btn-primary" onClick={() => setShowForm(true)}>Create your first session</button>
+            <p style={{ fontSize: '1.2rem', color: '#8b7355', fontStyle: 'italic', marginBottom: '0.75rem' }}>No sessions yet</p>
+            <p style={{ fontSize: '0.9rem', color: '#a89878', marginBottom: '2rem', lineHeight: 1.5 }}>Create your first session to get started. The setup wizard will guide you through defining outcomes, uploading materials, and configuring discussion prompts.</p>
+            <button className="btn-primary" onClick={() => router.push('/sessions/new')}>Create your first session</button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {sessions.map((s, i) => (
-              <div key={s.id} className="session-card" onClick={() => router.push(s.status === 'completed' ? '/report/' + s.id : '/admin/' + s.id)}>
+              <div key={s.id} className="session-card" onClick={() => router.push(sessionDestination(s))}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5rem', flex: 1, minWidth: 0 }}>
                   <span style={{ fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#a89878', minWidth: '24px', flexShrink: 0 }}>
                     {String(sessions.length - i).padStart(2, '0')}
@@ -186,7 +142,19 @@ export default function HomePage() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '1.05rem', fontWeight: '500', color: '#1a1208', marginBottom: '0.15rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</div>
                     <div style={{ fontSize: '0.88rem', color: '#6b5b3e', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.topic}</div>
-                    {s.group_name && <div style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', marginTop: '0.2rem' }}>⬡ {s.group_name}</div>}
+                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
+                      {s.group_name && <span style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#8b6914' }}>⬡ {s.group_name}</span>}
+                      {s.session_config?.session_type && (
+                        <span style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#a89878', textTransform: 'uppercase' }}>
+                          {s.session_config.session_type}
+                        </span>
+                      )}
+                      {s.session_config?.objectives?.length > 0 && (
+                        <span style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#5c7a5e' }}>
+                          {s.session_config.objectives.length} objective{s.session_config.objectives.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexShrink: 0, marginLeft: '1rem' }}>
@@ -210,7 +178,7 @@ export default function HomePage() {
         {sessions.length > 0 && (
           <div style={{ marginTop: '3rem', paddingTop: '2rem', borderTop: '1px solid #e8e0d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '0.82rem', color: '#a89878', fontFamily: "'DM Mono', monospace" }}>{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
-            <button className="btn-primary" onClick={() => setShowForm(true)}>+ New Session</button>
+            <button className="btn-primary" onClick={() => router.push('/sessions/new')}>+ New Session</button>
           </div>
         )}
       </main>
