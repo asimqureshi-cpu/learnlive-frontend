@@ -9,9 +9,12 @@ const supabase = createClient(
 );
 
 const API = process.env.NEXT_PUBLIC_BACKEND_URL;
-const WS_URL_ENV = process.env.NEXT_PUBLIC_WS_URL;
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL;
 
+// ─── Silence threshold ────────────────────────────────────────────────────────
+const SILENCE_WARN_MS = 3 * 60 * 1000; // warn after 3 min silence during active session
+
+// ─── Mini score display ───────────────────────────────────────────────────────
 function MiniScore({ label, value }) {
   const color = value >= 7 ? '#2d6a4f' : value >= 4 ? '#8b6914' : '#8b3a2a';
   return (
@@ -22,44 +25,119 @@ function MiniScore({ label, value }) {
   );
 }
 
+// ─── Bloom pip row ────────────────────────────────────────────────────────────
 function BloomPip({ level }) {
   const map = { REMEMBER: 1, UNDERSTAND: 2, APPLY: 3, ANALYSE: 4, EVALUATE: 5, CREATE: 6 };
   const colors = { REMEMBER: '#a89878', UNDERSTAND: '#6b7c8b', APPLY: '#5c7a5e', ANALYSE: '#7a5c8b', EVALUATE: '#8b6914', CREATE: '#8b3a2a' };
   const n = map[level] || 0;
   return (
     <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
-      {[1,2,3,4,5,6].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '1px', background: i <= n ? colors[level] : '#e8e0d0' }} />)}
+      {[1,2,3,4,5,6].map(i => (
+        <div key={i} style={{ width: '6px', height: '6px', borderRadius: '1px', background: i <= n ? (colors[level] || '#a89878') : '#e8e0d0' }} />
+      ))}
       <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: colors[level] || '#a89878', marginLeft: '4px' }}>{level || '—'}</span>
     </div>
   );
 }
 
+// ─── Bloom trend sparkline ────────────────────────────────────────────────────
+// Shows a row of dots, one per scored batch, coloured by Bloom level
+// Lets the facilitator see if a student is deepening or stalling
+function BloomTrend({ history }) {
+  const map = { REMEMBER: 1, UNDERSTAND: 2, APPLY: 3, ANALYSE: 4, EVALUATE: 5, CREATE: 6 };
+  const colors = { REMEMBER: '#a89878', UNDERSTAND: '#6b7c8b', APPLY: '#5c7a5e', ANALYSE: '#7a5c8b', EVALUATE: '#8b6914', CREATE: '#8b3a2a' };
+  if (!history || history.length === 0) return null;
+  return (
+    <div style={{ marginTop: '0.4rem' }}>
+      <div style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: '#c4b49a', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>
+        Bloom trend ({history.length} batch{history.length !== 1 ? 'es' : ''})
+      </div>
+      <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '20px' }}>
+        {history.map((level, i) => {
+          const h = ((map[level] || 1) / 6) * 18;
+          return (
+            <div key={i} title={level} style={{
+              width: '8px', height: `${h}px`, borderRadius: '1px',
+              background: colors[level] || '#a89878',
+              transition: 'height 0.3s ease',
+            }} />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
-// QR Code component — uses qrcodejs via CDN, targets a div
+// ─── Silence alert banner ─────────────────────────────────────────────────────
+function SilenceAlerts({ scores, lastSpokenAt, sessionActive }) {
+  if (!sessionActive || Object.keys(lastSpokenAt).length === 0) return null;
+  const now = Date.now();
+  const silent = Object.entries(lastSpokenAt)
+    .filter(([, ts]) => now - ts > SILENCE_WARN_MS)
+    .map(([name, ts]) => ({ name, minutes: Math.floor((now - ts) / 60000) }))
+    .sort((a, b) => b.minutes - a.minutes);
+  if (silent.length === 0) return null;
+  return (
+    <div style={{ background: '#fdf3f0', border: '1px solid #e0c8c4', borderRadius: '4px', padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+      <p style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#8b3a2a', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+        Silent participants
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+        {silent.map(({ name, minutes }) => (
+          <div key={name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.9rem', color: '#3a1a14' }}>{name}</span>
+            <span style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#8b3a2a' }}>
+              {minutes}m silent
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Debrief flag list ────────────────────────────────────────────────────────
+function DebriefPanel({ flagged, onClear }) {
+  if (flagged.length === 0) return null;
+  return (
+    <div className="panel" style={{ borderLeft: '3px solid #8b6914' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <p className="label" style={{ marginBottom: 0 }}>Flagged for debrief ({flagged.length})</p>
+        <button onClick={onClear} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>
+          Clear all
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {flagged.map((item, i) => (
+          <div key={i} style={{ background: '#fdfaf4', border: '1px solid #e8d9b8', borderRadius: '3px', padding: '0.75rem 1rem' }}>
+            <span style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', display: 'block', marginBottom: '0.3rem' }}>
+              {item.speakerTag}
+            </span>
+            <span style={{ fontSize: '0.9rem', color: '#2a1f0e', lineHeight: 1.5 }}>{item.utterance}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── QR Code ──────────────────────────────────────────────────────────────────
 function QRCode({ value, size = 120 }) {
   const divRef = React.useRef(null);
   const instanceRef = React.useRef(null);
-
   useEffect(() => {
     if (!divRef.current || !value) return;
-
     function draw() {
       if (!divRef.current) return;
-      // Clear previous
       divRef.current.innerHTML = '';
       instanceRef.current = new window.QRCode(divRef.current, {
-        text: value,
-        width: size,
-        height: size,
-        colorDark: '#1a1208',
-        colorLight: '#ffffff',
+        text: value, width: size, height: size,
+        colorDark: '#1a1208', colorLight: '#ffffff',
         correctLevel: window.QRCode.CorrectLevel.M,
       });
     }
-
-    if (window.QRCode) {
-      draw();
-    } else {
+    if (window.QRCode) { draw(); }
+    else {
       const existing = document.getElementById('qrcode-script');
       if (!existing) {
         const s = document.createElement('script');
@@ -67,15 +145,13 @@ function QRCode({ value, size = 120 }) {
         s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
         s.onload = draw;
         document.head.appendChild(s);
-      } else {
-        existing.addEventListener('load', draw);
-      }
+      } else { existing.addEventListener('load', draw); }
     }
   }, [value, size]);
-
   return <div ref={divRef} style={{ width: size, height: size }} />;
 }
 
+// ─── Material card ────────────────────────────────────────────────────────────
 function MaterialCard({ material, onDelete }) {
   const meta = material.metadata;
   return (
@@ -107,7 +183,7 @@ function MaterialCard({ material, onDelete }) {
   );
 }
 
-
+// ─── Powered by ───────────────────────────────────────────────────────────────
 function PoweredBy() {
   return (
     <div style={{ position: 'fixed', bottom: '1rem', right: '1.25rem', zIndex: 50, opacity: 0.35, transition: 'opacity 0.2s' }}
@@ -122,6 +198,7 @@ function PoweredBy() {
   );
 }
 
+// ─── Main page ────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -138,6 +215,24 @@ export default function AdminPage() {
   const [promptTarget, setPromptTarget] = useState('group');
   const [utteranceCount, setUtteranceCount] = useState(0);
   const [authChecked, setAuthChecked] = useState(false);
+
+  // NEW: Bloom history per participant — { [speakerTag]: string[] }
+  const [bloomHistory, setBloomHistory] = useState({});
+
+  // NEW: Last spoken timestamp per participant — { [speakerTag]: number }
+  const [lastSpokenAt, setLastSpokenAt] = useState({});
+
+  // NEW: Utterances flagged for debrief
+  const [debriefFlagged, setDebriefFlagged] = useState([]);
+
+  // Silence alert ticker — re-render every 30s to refresh "Xm silent" labels
+  const [, setSilenceTick] = useState(0);
+  useEffect(() => {
+    if (status !== 'active') return;
+    const t = setInterval(() => setSilenceTick(n => n + 1), 30000);
+    return () => clearInterval(t);
+  }, [status]);
+
   const wsRef = useRef(null);
   const transcriptEndRef = useRef(null);
   const fileRef = useRef(null);
@@ -145,16 +240,9 @@ export default function AdminPage() {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session: authSession } }) => {
       if (!authSession) { router.push('/login?redirect=/admin/' + id); return; }
-      // Students cannot access admin
       const { data: userRow } = await supabase
-        .from('users')
-        .select('role')
-        .eq('email', authSession.user.email)
-        .single();
-      if (!userRow || userRow.role === 'student') {
-        router.push('/student');
-        return;
-      }
+        .from('users').select('role').eq('email', authSession.user.email).single();
+      if (!userRow || userRow.role === 'student') { router.push('/student'); return; }
       setAuthChecked(true);
       fetchSession();
     });
@@ -164,24 +252,44 @@ export default function AdminPage() {
     if (status !== 'active') return;
     const ws = new WebSocket(WS_URL + '/ws?sessionId=' + id + '&role=admin');
     wsRef.current = ws;
+
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
+
       if (msg.event === 'NEW_UTTERANCE') {
-        setTranscripts(prev => [...prev, msg.data]);
+        const utt = msg.data;
+        setTranscripts(prev => [...prev, utt]);
         setUtteranceCount(c => c + 1);
+        // Track last spoken time
+        setLastSpokenAt(prev => ({ ...prev, [utt.speakerTag]: Date.now() }));
         setTimeout(() => transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
       }
+
       if (msg.event === 'SCORE_UPDATE') {
         setScores(prev => {
           const idx = prev.findIndex(s => s.speaker_tag === msg.data.speakerTag);
-          const updated = { speaker_tag: msg.data.speakerTag, ...msg.data.scores, participation_stats: msg.data.participationStats };
+          const updated = {
+            speaker_tag: msg.data.speakerTag,
+            ...msg.data.scores,
+            bloom_level: msg.data.bloom_level,
+            participation_stats: msg.data.participationStats,
+          };
           if (idx >= 0) { const n = [...prev]; n[idx] = updated; return n; }
           return [...prev, updated];
         });
+        // Append to Bloom history for this participant
+        if (msg.data.bloom_level) {
+          setBloomHistory(prev => ({
+            ...prev,
+            [msg.data.speakerTag]: [...(prev[msg.data.speakerTag] || []), msg.data.bloom_level],
+          }));
+        }
       }
+
       if (msg.event === 'PROMPT_SUGGESTION') setPrompts(prev => [{ ...msg.data, id: Date.now(), type: 'suggestion' }, ...prev].slice(0, 10));
       if (msg.event === 'PROMPT_ISSUED') setPrompts(prev => [{ ...msg.data, id: Date.now(), type: 'issued' }, ...prev].slice(0, 10));
     };
+
     return () => ws.close();
   }, [status, id]);
 
@@ -259,6 +367,14 @@ export default function AdminPage() {
     setPromptInput('');
   }
 
+  function flagForDebrief(utt) {
+    setDebriefFlagged(prev => {
+      const already = prev.some(f => f.utterance === utt.utterance && f.speakerTag === utt.speakerTag);
+      if (already) return prev;
+      return [...prev, utt];
+    });
+  }
+
   if (!authChecked) return null;
 
   const sessionUrl = typeof window !== 'undefined' ? window.location.origin + '/session/' + id : '';
@@ -284,11 +400,16 @@ export default function AdminPage() {
         .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #2d6a4f; animation: livepulse 1.5s ease-in-out infinite; display: inline-block; }
         @keyframes livepulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.5; transform:scale(0.8); } }
         .utterance { padding: 0.6rem 0; border-bottom: 1px solid #f0e8d8; display: flex; gap: 0.875rem; align-items: flex-start; animation: fadeup 0.3s ease; }
+        .utterance:hover .flag-btn { opacity: 1; }
+        .flag-btn { opacity: 0; background: none; border: none; cursor: pointer; font-size: 0.85rem; color: #c9b890; padding: 0; transition: opacity 0.15s, color 0.15s; flex-shrink: 0; }
+        .flag-btn:hover { color: #8b6914; }
+        .flag-btn.flagged { opacity: 1; color: #8b6914; }
         @keyframes fadeup { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
         .upload-zone { border: 2px dashed #d4c9b0; border-radius: 4px; padding: 1.25rem; text-align: center; cursor: pointer; transition: all 0.2s; }
         .upload-zone:hover { border-color: #8b6914; background: #fdfaf4; }
       `}</style>
 
+      {/* Header */}
       <header style={{ borderBottom: '1px solid #e8e0d0', background: '#fff', padding: '0 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '64px', position: 'sticky', top: 0, zIndex: 100 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           <button onClick={() => router.push('/')} className="btn btn-outline" style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>← Sessions</button>
@@ -309,7 +430,10 @@ export default function AdminPage() {
       </header>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.25rem', maxWidth: '1300px', margin: '0 auto', padding: '1.5rem' }}>
+
+        {/* ── Left column ── */}
         <div>
+          {/* Session details + QR */}
           <div className="panel">
             <p className="label">Session Details</p>
             <p style={{ fontSize: '1.05rem', color: '#2a1f0e', marginBottom: '0.25rem', fontStyle: 'italic' }}>{session?.topic}</p>
@@ -321,9 +445,8 @@ export default function AdminPage() {
             )}
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '0.78rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', background: '#faf8f3', border: '1px solid #e8e0d0', borderRadius: '3px', padding: '0.35rem 0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sessionUrl}</span>
-              <button className="btn btn-outline" style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', flexShrink: 0 }} onClick={() => { navigator.clipboard.writeText(sessionUrl); }}>Copy Link</button>
+              <button className="btn btn-outline" style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', flexShrink: 0 }} onClick={() => navigator.clipboard.writeText(sessionUrl)}>Copy Link</button>
             </div>
-            {/* QR Code */}
             <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid #f0e8d8', display: 'flex', alignItems: 'flex-start', gap: '1.25rem' }}>
               <div>
                 <p style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#8b7355', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.6rem' }}>QR Code</p>
@@ -336,17 +459,13 @@ export default function AdminPage() {
                 <button className="btn btn-outline" style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
                   onClick={() => {
                     const canvas = document.querySelector('#qr-container canvas');
-                    if (canvas) {
-                      const link = document.createElement('a');
-                      link.download = 'learnlive-qr.png';
-                      link.href = canvas.toDataURL('image/png');
-                      link.click();
-                    }
+                    if (canvas) { const l = document.createElement('a'); l.download = 'learnlive-qr.png'; l.href = canvas.toDataURL('image/png'); l.click(); }
                   }}>Download QR</button>
               </div>
             </div>
           </div>
 
+          {/* Materials */}
           <div className="panel">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem' }}>
               <p className="label" style={{ marginBottom: 0 }}>Materials ({materials.length})</p>
@@ -370,53 +489,91 @@ export default function AdminPage() {
             )}
           </div>
 
+          {/* Live transcript with flag buttons */}
           <div className="panel">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <p className="label" style={{ marginBottom: 0 }}>Live Transcript</p>
-              <span style={{ fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{utteranceCount} utterances</span>
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                {debriefFlagged.length > 0 && (
+                  <span style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#8b6914' }}>
+                    ★ {debriefFlagged.length} flagged
+                  </span>
+                )}
+                <span style={{ fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{utteranceCount} utterances</span>
+              </div>
             </div>
-            <div style={{ height: '300px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+            <div style={{ height: '320px', overflowY: 'auto', paddingRight: '0.25rem' }}>
               {transcripts.length === 0 ? (
-                <p style={{ fontSize: '0.9rem', color: '#a89878', fontStyle: 'italic', textAlign: 'center', paddingTop: '4rem' }}>{status === 'active' ? 'Waiting for speech...' : 'Start session to see transcript'}</p>
+                <p style={{ fontSize: '0.9rem', color: '#a89878', fontStyle: 'italic', textAlign: 'center', paddingTop: '4rem' }}>
+                  {status === 'active' ? 'Waiting for speech...' : 'Start session to see transcript'}
+                </p>
               ) : (
-                transcripts.map((t, i) => (
-                  <div key={i} className="utterance">
-                    <span style={{ fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', flexShrink: 0, paddingTop: '3px', minWidth: '65px' }}>{t.speakerTag}</span>
-                    <span style={{ fontSize: '0.92rem', color: '#2a1f0e', lineHeight: 1.5 }}>{t.utterance}</span>
-                  </div>
-                ))
+                transcripts.map((t, i) => {
+                  const isFlagged = debriefFlagged.some(f => f.utterance === t.utterance && f.speakerTag === t.speakerTag);
+                  return (
+                    <div key={i} className="utterance">
+                      <span style={{ fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', flexShrink: 0, paddingTop: '3px', minWidth: '65px' }}>{t.speakerTag}</span>
+                      <span style={{ fontSize: '0.92rem', color: '#2a1f0e', lineHeight: 1.5, flex: 1 }}>{t.utterance}</span>
+                      <button
+                        className={`flag-btn${isFlagged ? ' flagged' : ''}`}
+                        title={isFlagged ? 'Flagged for debrief' : 'Flag for debrief'}
+                        onClick={() => flagForDebrief(t)}
+                      >★</button>
+                    </div>
+                  );
+                })
               )}
               <div ref={transcriptEndRef} />
             </div>
           </div>
 
+          {/* Debrief flagged panel */}
+          <DebriefPanel flagged={debriefFlagged} onClear={() => setDebriefFlagged([])} />
+
+          {/* Issue prompt */}
           {status === 'active' && (
             <div className="panel">
               <p className="label">Issue Facilitation Prompt</p>
               <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <select value={promptTarget} onChange={e => setPromptTarget(e.target.value)} style={{ padding: '0.6rem 0.875rem', border: '1px solid #d4c9b0', borderRadius: '3px', fontFamily: "'Crimson Pro', Georgia, serif", fontSize: '0.95rem', color: '#1a1208', background: '#fdfaf4', outline: 'none' }}>
+                <select value={promptTarget} onChange={e => setPromptTarget(e.target.value)}
+                  style={{ padding: '0.6rem 0.875rem', border: '1px solid #d4c9b0', borderRadius: '3px', fontFamily: "'Crimson Pro', Georgia, serif", fontSize: '0.95rem', color: '#1a1208', background: '#fdfaf4', outline: 'none' }}>
                   <option value="group">Group</option>
                   {scores.map(s => <option key={s.speaker_tag} value={s.speaker_tag}>{s.speaker_tag}</option>)}
                 </select>
-                <input className="input" placeholder="Type a facilitation prompt..." value={promptInput} onChange={e => setPromptInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && issuePrompt()} />
+                <input className="input" placeholder="Type a facilitation prompt..."
+                  value={promptInput} onChange={e => setPromptInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && issuePrompt()} />
                 <button className="btn btn-dark" onClick={issuePrompt} style={{ flexShrink: 0 }}>Issue</button>
               </div>
             </div>
           )}
         </div>
 
+        {/* ── Right column ── */}
         <div>
+          {/* Silence alerts — sits above scores when active */}
+          <SilenceAlerts
+            scores={scores}
+            lastSpokenAt={lastSpokenAt}
+            sessionActive={status === 'active'}
+          />
+
+          {/* Participant scores with Bloom trend */}
           <div className="panel">
             <p className="label">Participant Scores</p>
             {scores.length === 0 ? (
-              <p style={{ fontSize: '0.88rem', color: '#a89878', fontStyle: 'italic' }}>{status === 'active' ? 'Scores appear as participants speak...' : 'No scores yet'}</p>
+              <p style={{ fontSize: '0.88rem', color: '#a89878', fontStyle: 'italic' }}>
+                {status === 'active' ? 'Scores appear as participants speak...' : 'No scores yet'}
+              </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 {scores.map((s, i) => (
                   <div key={i} style={{ paddingBottom: '1.25rem', borderBottom: i < scores.length - 1 ? '1px solid #f0e8d8' : 'none' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
                       <span style={{ fontSize: '1rem', fontWeight: '500', color: '#1a1208' }}>{s.speaker_tag}</span>
-                      <span style={{ fontSize: '1.4rem', fontFamily: "'DM Mono', monospace", fontWeight: '500', color: s.overall_score >= 7 ? '#2d6a4f' : s.overall_score >= 4 ? '#8b6914' : '#8b3a2a' }}>{s.overall_score?.toFixed(1) || '—'}</span>
+                      <span style={{ fontSize: '1.4rem', fontFamily: "'DM Mono', monospace", fontWeight: '500', color: s.overall_score >= 7 ? '#2d6a4f' : s.overall_score >= 4 ? '#8b6914' : '#8b3a2a' }}>
+                        {s.overall_score?.toFixed(1) || '—'}
+                      </span>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginBottom: '0.75rem' }}>
                       <MiniScore label="Topic" value={s.topic_adherence} />
@@ -424,13 +581,20 @@ export default function AdminPage() {
                       <MiniScore label="Material" value={s.material_application} />
                     </div>
                     {s.bloom_level && <BloomPip level={s.bloom_level} />}
-                    {s.participation_stats && <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>{s.participation_stats.utteranceCount} utterances · {Math.round(s.participation_stats.talkTimeSeconds)}s</div>}
+                    {/* NEW: Bloom trend sparkline */}
+                    <BloomTrend history={bloomHistory[s.speaker_tag]} />
+                    {s.participation_stats && (
+                      <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>
+                        {s.participation_stats.utteranceCount} utterances · {Math.round(s.participation_stats.talkTimeSeconds)}s
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
+          {/* AI prompt suggestions */}
           {prompts.length > 0 && (
             <div className="panel">
               <p className="label">AI Suggestions</p>
@@ -438,12 +602,17 @@ export default function AdminPage() {
                 {prompts.slice(0, 5).map(p => (
                   <div key={p.id} style={{ background: p.type === 'issued' ? '#f0f7f3' : '#fdfaf4', border: '1px solid ' + (p.type === 'issued' ? '#c8e0d4' : '#e8d9b8'), borderRadius: '3px', padding: '0.875rem 1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-                      <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: p.type === 'issued' ? '#2d6a4f' : '#8b6914', letterSpacing: '0.08em' }}>{p.type === 'issued' ? 'ISSUED' : 'SUGGESTED'} → {p.target}</span>
+                      <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: p.type === 'issued' ? '#2d6a4f' : '#8b6914', letterSpacing: '0.08em' }}>
+                        {p.type === 'issued' ? 'ISSUED' : 'SUGGESTED'} → {p.target}
+                      </span>
                       {p.flag && <span style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>{p.flag}</span>}
                     </div>
                     <p style={{ fontSize: '0.875rem', color: '#2a1f0e', lineHeight: 1.5, marginBottom: p.type === 'suggestion' ? '0.5rem' : 0 }}>{p.prompt}</p>
                     {p.type === 'suggestion' && (
-                      <button className="btn btn-dark" style={{ fontSize: '0.78rem', padding: '0.3rem 0.75rem' }} onClick={() => { setPromptInput(p.prompt); setPromptTarget(p.target); }}>Use this prompt</button>
+                      <button className="btn btn-dark" style={{ fontSize: '0.78rem', padding: '0.3rem 0.75rem' }}
+                        onClick={() => { setPromptInput(p.prompt); setPromptTarget(p.target); }}>
+                        Use this prompt
+                      </button>
                     )}
                   </div>
                 ))}
