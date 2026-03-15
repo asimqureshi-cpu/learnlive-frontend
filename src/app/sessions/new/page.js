@@ -15,11 +15,33 @@ const STEPS = [
   { id: 3, label: 'Discussion' }, { id: 4, label: 'Interventions' },
   { id: 5, label: 'Evaluation' }, { id: 6, label: 'Launch' },
 ];
-const BLOOM_COLORS = { UNDERSTAND: '#6b7c8b', APPLY: '#5c7a5e', ANALYSE: '#7a5c8b', EVALUATE: '#8b6914', CREATE: '#8b3a2a' };
+
 const inputStyle = { width: '100%', padding: '0.7rem 0.875rem', border: '1px solid #d4c9b0', borderRadius: '3px', fontFamily: "'Crimson Pro', Georgia, serif", fontSize: '1rem', color: '#1a1208', background: '#fdfaf4', outline: 'none' };
 const labelStyle = { display: 'block', fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#5c4a1e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' };
 const hintStyle = { fontSize: '0.78rem', color: '#a89878', fontStyle: 'italic', marginTop: '0.35rem', lineHeight: 1.4 };
 const sectionStyle = { marginBottom: '1.75rem' };
+
+// ── Tone / Sensitivity slider labels ─────────────────────────────────────────
+const TONE_LABELS = {
+  1: 'Encouraging', 2: 'Supportive', 3: 'Socratic', 4: 'Challenging', 5: 'Demanding',
+};
+const TONE_HINTS = {
+  1: 'Warm, affirming — celebrates contributions before pushing further',
+  2: 'Acknowledges the point, then gently questions it',
+  3: 'Neutral Socratic questioning — no praise, no criticism',
+  4: 'Direct and rigorous — calls out gaps plainly',
+  5: 'Sharp and uncompromising — expects students to defend every claim',
+};
+const SENSITIVITY_LABELS = {
+  1: 'Conservative', 2: 'Measured', 3: 'Balanced', 4: 'Proactive', 5: 'Aggressive',
+};
+const SENSITIVITY_HINTS = {
+  1: 'Only fire if the problem is severe and sustained across multiple exchanges',
+  2: 'Fire when a clear pattern is established over at least 2 exchanges',
+  3: 'Fire when the pattern is clear — one exchange is enough if it is stark',
+  4: 'Fire at the first clear sign — do not wait for it to develop',
+  5: 'Fire immediately at any hint of the problem, even partial signals',
+};
 
 function ProgressBar({ current }) {
   return (
@@ -64,6 +86,28 @@ function WeightSlider({ label, value, onChange }) {
   );
 }
 
+// ── Intent slider — 1 to 5 with labelled endpoints ───────────────────────────
+function IntentSlider({ label, value, onChange, labels, hints, leftLabel, rightLabel }) {
+  return (
+    <div style={{ marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.4rem' }}>
+        <span style={{ fontSize: '0.85rem', color: '#2a1f0e', fontWeight: '500' }}>{label}</span>
+        <span style={{ fontSize: '0.78rem', fontFamily: "'DM Mono', monospace", color: '#8b6914' }}>{labels[value]}</span>
+      </div>
+      <input
+        type="range" min="1" max="5" step="1" value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        style={{ width: '100%', accentColor: '#8b6914', marginBottom: '0.35rem' }}
+      />
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>{leftLabel}</span>
+        <span style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>{rightLabel}</span>
+      </div>
+      {hints && <p style={hintStyle}>{hints[value]}</p>}
+    </div>
+  );
+}
+
 function PromptItem({ value, index, onChange, onRemove, placeholder }) {
   return (
     <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'flex-start' }}>
@@ -83,6 +127,16 @@ function readinessWarnings(config, materials) {
   return w;
 }
 
+// ── Default intent ────────────────────────────────────────────────────────────
+const DEFAULT_INTENT = {
+  enabled_types: { silence: true, dominating: true, off_topic: true, shallow: true, time_running_out: true },
+  tone: 3,
+  sensitivity: 3,
+  cooldown_minutes: 5,
+  must_cover_concepts: [],
+  constraints: { never_name_in_group: false, always_reference_materials: true },
+};
+
 export default function NewSessionPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -94,6 +148,7 @@ export default function NewSessionPage() {
   // Step 1
   const [title, setTitle] = useState('');
   const [topic, setTopic] = useState('');
+  const [topicId, setTopicId] = useState(null);         // course_topics.id if linked
   const [sessionType, setSessionType] = useState('group');
   const [isAsync, setIsAsync] = useState(false);
   const [classSize, setClassSize] = useState('');
@@ -124,14 +179,12 @@ export default function NewSessionPage() {
   const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = useState(new Set());
 
-  // Step 4
-  const [interventions, setInterventions] = useState({
-    silence: { enabled: true, prompt: "Someone who hasn't spoken yet — what's your take on this?" },
-    dominance: { enabled: true, prompt: "Let's hear from someone else — who wants to build on or challenge that?" },
-    offTopic: { enabled: true, prompt: "Let's bring this back to the core question. How does this connect to our topic?" },
-    shallow: { enabled: true, prompt: "Interesting point — can you back that up with specific evidence or a concrete example?" },
-    timeRunningOut: { enabled: true, prompt: "We have a few minutes left. Can someone summarise the key points of disagreement?" },
-  });
+  // Step 4 — Intent configuration (replaces old prompt-text interventions)
+  const [intentConfig, setIntentConfig] = useState(DEFAULT_INTENT);
+  const [intentLoading, setIntentLoading] = useState(false);
+  const [intentFromHistory, setIntentFromHistory] = useState(false);
+  const [intentHistorySummary, setIntentHistorySummary] = useState(null);
+  const [newConcept, setNewConcept] = useState('');
 
   // Step 5
   const [weights, setWeights] = useState({ topic_adherence: 25, depth: 35, material_application: 25, participation: 15 });
@@ -154,54 +207,120 @@ export default function NewSessionPage() {
     });
   }, []);
 
-  // Auto-load AI suggestions on entering Step 3 if materials exist
+  // Auto-load AI suggestions on entering Step 3
   useEffect(() => {
     if (step !== 3 || suggestionsLoaded || suggestionsLoading) return;
     if (!sessionId || materials.length === 0) return;
     loadAiSuggestions();
   }, [step]);
 
+  // Auto-load intent defaults from history when entering Step 4
+  useEffect(() => {
+    if (step !== 4 || intentLoading || intentFromHistory) return;
+    loadIntentDefaults();
+  }, [step]);
+
+  // Auto-extract must-cover concepts from materials metadata + objectives
+  useEffect(() => {
+    if (step !== 4) return;
+    const extractedConcepts = [];
+    materials.forEach(m => {
+      const topics = m.metadata?.key_topics || m.metadata?.key_concepts || [];
+      extractedConcepts.push(...topics);
+    });
+    const objConcepts = objectives.split('\n').map(o => o.trim()).filter(Boolean);
+    const all = [...new Set([...extractedConcepts, ...objConcepts])].slice(0, 8);
+    if (all.length > 0 && intentConfig.must_cover_concepts.length === 0) {
+      setIntentConfig(prev => ({ ...prev, must_cover_concepts: all }));
+    }
+  }, [step]);
+
   async function loadAiSuggestions() {
-    if (!sessionId || materials.length === 0) return;
     setSuggestionsLoading(true);
     try {
+      const objList = objectives.split('\n').map(o => o.trim()).filter(Boolean);
+      const existingPrompts = discussionPrompts.filter(p => p.trim());
       const res = await fetch(API + '/api/sessions/' + sessionId + '/suggest-prompts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic,
-          objectives: objectives.trim().split('\n').map(o => o.trim()).filter(Boolean),
-          professorPrompts: discussionPrompts.filter(p => p.trim()),
-        }),
+        body: JSON.stringify({ topic, objectives: objList, professorPrompts: existingPrompts }),
       });
       const data = await res.json();
-      setAiSuggestions(data.suggestions || []);
-      setSuggestionsLoaded(true);
-    } catch (err) {
-      console.error('[Suggestions] Failed:', err.message);
-    }
+      if (data.suggestions?.length) { setAiSuggestions(data.suggestions); setSuggestionsLoaded(true); }
+    } catch (err) { console.error('Suggestions failed:', err); }
     setSuggestionsLoading(false);
   }
 
-  function acceptSuggestion(suggestion) {
-    setDiscussionPrompts(prev => {
-      const emptyIdx = prev.findIndex(p => !p.trim());
-      if (emptyIdx >= 0) { const n = [...prev]; n[emptyIdx] = suggestion.prompt; return n; }
-      if (prev.length < 6) return [...prev, suggestion.prompt];
-      return prev;
-    });
-    setDismissedSuggestions(prev => new Set([...prev, suggestion.prompt]));
+  async function loadIntentDefaults() {
+    setIntentLoading(true);
+    try {
+      const tid = topicId || 'none';
+      const res = await fetch(API + '/api/sessions/intent-defaults/' + tid);
+      const data = await res.json();
+      if (data.intent_config) {
+        setIntentConfig(prev => ({
+          ...DEFAULT_INTENT,
+          ...data.intent_config,
+          // Preserve any concepts already extracted from materials
+          must_cover_concepts: data.intent_config.must_cover_concepts?.length
+            ? data.intent_config.must_cover_concepts
+            : prev.must_cover_concepts,
+        }));
+        if (data.has_history && data.intent_config._ai_populated) {
+          setIntentFromHistory(true);
+          setIntentHistorySummary(data.intent_config._intelligence_summary);
+        }
+      }
+    } catch (err) { /* silent — defaults already set */ }
+    setIntentLoading(false);
   }
 
-  const weightSum = Object.values(weights).reduce((a, b) => a + b, 0);
-  const weightValid = weightSum === 100;
+  function updateIntent(key, value) {
+    setIntentConfig(prev => ({ ...prev, [key]: value }));
+  }
+
+  function updateEnabledType(type, value) {
+    setIntentConfig(prev => ({
+      ...prev,
+      enabled_types: { ...prev.enabled_types, [type]: value },
+    }));
+  }
+
+  function updateConstraint(key, value) {
+    setIntentConfig(prev => ({
+      ...prev,
+      constraints: { ...prev.constraints, [key]: value },
+    }));
+  }
+
+  function addConcept() {
+    const c = newConcept.trim();
+    if (!c) return;
+    setIntentConfig(prev => ({
+      ...prev,
+      must_cover_concepts: [...(prev.must_cover_concepts || []).filter(x => x !== c), c],
+    }));
+    setNewConcept('');
+  }
+
+  function removeConcept(c) {
+    setIntentConfig(prev => ({
+      ...prev,
+      must_cover_concepts: prev.must_cover_concepts.filter(x => x !== c),
+    }));
+  }
 
   async function ensureSessionCreated() {
     if (sessionId) return sessionId;
     const res = await fetch(API + '/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: title.trim(), topic: topic.trim(), group_name: groupName.trim() || null, session_config: buildConfig() }),
+      body: JSON.stringify({
+        title: title.trim(), topic: topic.trim(),
+        group_name: groupName.trim() || null,
+        topic_id: topicId || null,
+        session_config: buildConfig(),
+      }),
     });
     const data = await res.json();
     if (!data.id) throw new Error('Session creation failed');
@@ -218,16 +337,22 @@ export default function NewSessionPage() {
       objectives: objectives.trim().split('\n').map(o => o.trim()).filter(Boolean),
       objective_scoring_enabled: objectiveScoring,
       youtube_url: youtubeUrl.trim() || null,
-      has_audio_prework: !!audioFile, content_tags: contentTags,
+      has_audio_prework: !!audioFile,
+      content_tags: contentTags,
       opening_question: openingQuestion.trim(),
       discussion_prompts: discussionPrompts.filter(p => p.trim()),
       poll_question: pollQuestion.trim() || null,
       poll_options: pollOptions.filter(o => o.trim()),
       role_play_instructions: rolePlayInstructions.trim() || null,
-      group_mode: groupMode, breakout_size: breakoutSize ? Number(breakoutSize) : 4,
-      interventions, scoring_weights: weights,
-      bloom_enabled: bloomEnabled, individual_scoring: individualScoring,
-      auto_feedback: autoFeedback, flag_threshold: Number(flagThreshold),
+      group_mode: groupMode,
+      breakout_size: breakoutSize ? Number(breakoutSize) : 4,
+      // Phase 2: intervention_intent replaces old interventions object
+      intervention_intent: intentConfig,
+      scoring_weights: weights,
+      bloom_enabled: bloomEnabled,
+      individual_scoring: individualScoring,
+      auto_feedback: autoFeedback,
+      flag_threshold: Number(flagThreshold),
     };
   }
 
@@ -267,7 +392,10 @@ export default function NewSessionPage() {
           const matRes = await fetch(API + '/api/materials/' + id);
           const matData = await matRes.json();
           const updated = matData.find(m => m.id === data.material.id);
-          if (updated?.metadata || attempts >= 10) { clearInterval(poll); setMaterials(Array.isArray(matData) ? matData.map(m => ({ ...m, tag: contentTags[m.id] || 'ai_context' })) : []); }
+          if (updated?.metadata || attempts >= 10) {
+            clearInterval(poll);
+            setMaterials(Array.isArray(matData) ? matData.map(m => ({ ...m, tag: contentTags[m.id] || 'ai_context' })) : []);
+          }
         }, 3000);
       }
     } catch (err) { alert('Upload failed: ' + err.message); }
@@ -279,7 +407,6 @@ export default function NewSessionPage() {
     if (!confirm('Remove this material?')) return;
     setMaterials(prev => prev.filter(m => m.id !== materialId));
     setContentTags(prev => { const n = { ...prev }; delete n[materialId]; return n; });
-    setSuggestionsLoaded(false); setAiSuggestions([]);
     await fetch(API + '/api/materials/' + materialId, { method: 'DELETE' });
   }
 
@@ -288,9 +415,8 @@ export default function NewSessionPage() {
     setMaterials(prev => prev.map(m => m.id === materialId ? { ...m, tag } : m));
   }
 
-  function updateIntervention(key, field, value) {
-    setInterventions(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }));
-  }
+  const weightSum = Object.values(weights).reduce((a, b) => a + b, 0);
+  const weightValid = weightSum === 100;
 
   function canProceed() {
     if (step === 1) return title.trim() && topic.trim();
@@ -311,11 +437,6 @@ export default function NewSessionPage() {
   if (!authChecked) return null;
 
   const warnings = readinessWarnings({ objectives, openingQuestion, discussionPrompts }, materials);
-  const visibleSuggestions = aiSuggestions.filter(s => !dismissedSuggestions.has(s.prompt));
-
-  const btnNav = (disabled, onClick, children, green = false) => (
-    <button onClick={onClick} disabled={disabled} style={{ background: disabled ? '#d4c9b0' : green ? '#2d6a4f' : '#1a1208', color: disabled ? '#a89878' : '#f5edd8', border: 'none', borderRadius: '3px', padding: '0.6rem 1.5rem', cursor: disabled ? 'default' : 'pointer', fontSize: '0.95rem', fontFamily: "'Crimson Pro', Georgia, serif", transition: 'all 0.2s' }}>{children}</button>
-  );
 
   return (
     <div style={{ minHeight: '100vh', background: '#faf8f3', fontFamily: "'Crimson Pro', Georgia, serif" }}>
@@ -332,28 +453,28 @@ export default function NewSessionPage() {
         .ack-row:hover { border-color: #8b6914; }
         .ack-row.checked { border-color: #2d6a4f; background: #f0f7f3; }
         .warning-item { display: flex; gap: 0.5rem; padding: 0.6rem 0.875rem; background: #fdf8ec; border: 1px solid #e8d9b8; border-radius: 3px; margin-bottom: 0.5rem; }
-        .ai-card { background: #fff; border: 1px solid #d4c9b0; border-left: 3px solid #8b6914; border-radius: 4px; padding: 1rem 1.125rem; margin-bottom: 0.75rem; animation: fadeup 0.3s ease; }
-        @keyframes fadeup { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spinner { width: 14px; height: 14px; border: 2px solid #e8e0d0; border-top-color: #8b6914; border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; flex-shrink: 0; }
-        .session-card-checkbox { width: 16px; height: 16px; border-radius: 2px; border: 1.5px solid #d4c9b0; cursor: pointer; flex-shrink: 0; }
+        .concept-tag { display: inline-flex; align-items: center; gap: 0.35rem; background: #1a1208; color: #c9b890; border-radius: 2px; padding: 0.2rem 0.5rem 0.2rem 0.65rem; font-size: 0.72rem; font-family: 'DM Mono', monospace; margin: 0.2rem; }
+        .concept-tag button { background: none; border: none; cursor: pointer; color: #8b7355; font-size: 0.8rem; padding: 0; line-height: 1; transition: color 0.15s; }
+        .concept-tag button:hover { color: #f5edd8; }
+        .intervention-card { background: #fff; border: 1px solid #e8e0d0; border-radius: 4px; overflow: hidden; margin-bottom: 0.875rem; transition: border-color 0.2s; }
+        .intervention-card.active { border-color: #8b6914; }
+        .intervention-card-header { padding: 0.875rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+        .ai-badge { font-size: 0.6rem; font-family: 'DM Mono', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: #2d6a4f; background: #f0f7f3; border: 1px solid #c8e0d4; border-radius: 2px; padding: 0.15rem 0.45rem; }
       `}</style>
 
       <header style={{ borderBottom: '1px solid #e8e0d0', background: '#fff', padding: '0 3rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '64px', position: 'sticky', top: 0, zIndex: 100 }}>
-        <button onClick={() => router.push('/')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b7355', fontSize: '0.85rem', fontFamily: "'DM Mono', monospace", letterSpacing: '0.06em' }}>← Sessions</button>
+        <button onClick={() => router.push('/sessions')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b7355', fontSize: '0.85rem', fontFamily: "'DM Mono', monospace", letterSpacing: '0.06em' }}>← Sessions</button>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
           <span style={{ fontSize: '1.2rem', fontWeight: '600', color: '#1a1208' }}>LearnLive</span>
           <span style={{ fontSize: '0.7rem', color: '#8b7355', fontFamily: "'DM Mono', monospace", letterSpacing: '0.1em', textTransform: 'uppercase' }}>New Session</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {sessionId && <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#2d6a4f' }}>● Draft saved</span>}
-          <span style={{ fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>Step {step} of 6</span>
-        </div>
+        <span style={{ fontSize: '0.75rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>Step {step} of 6</span>
       </header>
 
       <main style={{ maxWidth: '680px', margin: '0 auto', padding: '2.5rem 2rem 6rem' }}>
         <ProgressBar current={step} />
 
+        {/* ── Step 1: Outcome ── */}
         {step === 1 && (
           <div>
             <h2 style={{ fontSize: '1.8rem', fontWeight: '400', color: '#1a1208', marginBottom: '0.4rem' }}>Define the outcome</h2>
@@ -365,7 +486,7 @@ export default function NewSessionPage() {
             <div style={sectionStyle}>
               <label style={labelStyle}>Discussion topic <span style={{ color: '#8b3a2a' }}>*</span></label>
               <input style={inputStyle} placeholder="e.g. When do fiduciary duties override ethical obligations?" value={topic} onChange={e => setTopic(e.target.value)} />
-              <p style={hintStyle}>The central question the AI uses to evaluate relevance throughout the session.</p>
+              <p style={hintStyle}>This is the central question the AI uses to evaluate relevance throughout the session.</p>
             </div>
             <div style={sectionStyle}>
               <label style={labelStyle}>Course / cohort group</label>
@@ -399,12 +520,13 @@ export default function NewSessionPage() {
             <div style={sectionStyle}>
               <label style={labelStyle}>Learning objectives</label>
               <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '100px' }} placeholder={'One objective per line, e.g.\nApply stakeholder theory to a real business case\nEvaluate competing ethical frameworks\nDefend a position using evidence'} value={objectives} onChange={e => setObjectives(e.target.value)} />
-              <p style={hintStyle}>Used to evaluate whether the discussion achieved its intended goals.</p>
+              <p style={hintStyle}>Used to evaluate whether the discussion achieved its intended goals, and to auto-fill must-cover concepts in Step 4.</p>
             </div>
-            <div style={sectionStyle}><Toggle value={objectiveScoring} onChange={setObjectiveScoring} label="Enable objective-aware AI scoring" hint="Claude evaluates each contribution against your specific learning objectives. Note: this makes scoring slightly slower." /></div>
+            <div style={sectionStyle}><Toggle value={objectiveScoring} onChange={setObjectiveScoring} label="Enable objective-aware AI scoring" hint="Claude evaluates each contribution against your specific learning objectives. Slightly slower per batch." /></div>
           </div>
         )}
 
+        {/* ── Step 2: Content ── */}
         {step === 2 && (
           <div>
             <h2 style={{ fontSize: '1.8rem', fontWeight: '400', color: '#1a1208', marginBottom: '0.4rem' }}>Add content</h2>
@@ -466,6 +588,7 @@ export default function NewSessionPage() {
           </div>
         )}
 
+        {/* ── Step 3: Discussion ── */}
         {step === 3 && (
           <div>
             <h2 style={{ fontSize: '1.8rem', fontWeight: '400', color: '#1a1208', marginBottom: '0.4rem' }}>Build the discussion</h2>
@@ -476,60 +599,38 @@ export default function NewSessionPage() {
               <p style={hintStyle}>This is the first thing students see when the session starts.</p>
             </div>
             <div style={sectionStyle}>
-              <label style={labelStyle}>Your discussion prompts (up to 6)</label>
-              <p style={{ ...hintStyle, marginBottom: '0.75rem' }}>Sequence of prompts the facilitator can inject or that fire automatically.</p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <label style={{ ...labelStyle, marginBottom: 0 }}>Your discussion prompts (up to 6)</label>
+                {materials.length > 0 && !suggestionsLoaded && (
+                  <button onClick={loadAiSuggestions} disabled={suggestionsLoading} style={{ background: 'none', border: '1px solid #d4c9b0', borderRadius: '3px', padding: '0.25rem 0.75rem', cursor: 'pointer', color: '#5c4a1e', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace" }}>
+                    {suggestionsLoading ? 'Generating...' : '✦ AI suggestions'}
+                  </button>
+                )}
+              </div>
+              {aiSuggestions.filter((_, i) => !dismissedSuggestions.has(i)).length > 0 && (
+                <div style={{ background: '#fdfaf4', border: '1px solid #e8d9b8', borderRadius: '3px', padding: '0.875rem 1rem', marginBottom: '1rem' }}>
+                  <p style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.75rem' }}>AI suggested prompts — based on your materials</p>
+                  {aiSuggestions.map((s, i) => dismissedSuggestions.has(i) ? null : (
+                    <div key={i} style={{ background: '#fff', border: '1px solid #e8d9b8', borderRadius: '3px', padding: '0.75rem 1rem', marginBottom: '0.5rem' }}>
+                      <p style={{ fontSize: '0.9rem', color: '#2a1f0e', lineHeight: 1.5, marginBottom: '0.4rem' }}>{s.prompt}</p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>{s.bloom_level} · {s.rationale}</span>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button onClick={() => { if (discussionPrompts.filter(p => p.trim()).length < 6) setDiscussionPrompts(prev => { const empty = prev.findIndex(p => !p.trim()); return empty >= 0 ? prev.map((v, j) => j === empty ? s.prompt : v) : [...prev, s.prompt].slice(0, 6); }); setDismissedSuggestions(prev => new Set([...prev, i])); }} style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", background: '#1a1208', color: '#f5edd8', border: 'none', borderRadius: '2px', padding: '0.2rem 0.6rem', cursor: 'pointer' }}>Use</button>
+                          <button onClick={() => setDismissedSuggestions(prev => new Set([...prev, i]))} style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", background: 'none', border: '1px solid #d4c9b0', borderRadius: '2px', padding: '0.2rem 0.6rem', cursor: 'pointer', color: '#8b7355' }}>Dismiss</button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {discussionPrompts.map((p, i) => (
-                <PromptItem key={i} value={p} index={i}
-                  onChange={val => setDiscussionPrompts(prev => prev.map((v, j) => j === i ? val : v))}
-                  onRemove={() => setDiscussionPrompts(prev => prev.filter((_, j) => j !== i))}
-                  placeholder={i === 0 ? 'e.g. Who bears the most responsibility here — and why?' : i === 1 ? 'e.g. What would a stakeholder theorist say? Do you agree?' : 'Next prompt...'} />
+                <PromptItem key={i} value={p} index={i} onChange={val => setDiscussionPrompts(prev => prev.map((v, j) => j === i ? val : v))} onRemove={() => setDiscussionPrompts(prev => prev.filter((_, j) => j !== i))} placeholder={i === 0 ? 'e.g. Who bears the most responsibility here — and why?' : i === 1 ? 'e.g. What would a stakeholder theorist say? Do you agree?' : 'Next prompt...'} />
               ))}
               {discussionPrompts.length < 6 && (
                 <button onClick={() => setDiscussionPrompts(prev => [...prev, ''])} style={{ background: 'none', border: '1px dashed #d4c9b0', borderRadius: '3px', padding: '0.5rem 1rem', cursor: 'pointer', color: '#8b7355', fontSize: '0.85rem', width: '100%', fontFamily: "'Crimson Pro', Georgia, serif" }}>+ Add prompt</button>
               )}
             </div>
-
-            {/* AI suggestions section */}
-            <div style={{ ...sectionStyle, background: '#fdfaf4', border: '1px solid #e8d9b8', borderRadius: '4px', padding: '1.25rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem' }}>
-                <div>
-                  <p style={{ fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>AI-suggested prompts</p>
-                  <p style={{ fontSize: '0.8rem', color: '#8b7355', fontStyle: 'italic' }}>Generated from your uploaded materials</p>
-                </div>
-                {suggestionsLoaded && (
-                  <button onClick={() => { setSuggestionsLoaded(false); setAiSuggestions([]); setDismissedSuggestions(new Set()); loadAiSuggestions(); }} style={{ background: 'none', border: '1px solid #d4c9b0', borderRadius: '3px', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: '#8b7355' }}>↺ Regenerate</button>
-                )}
-              </div>
-              {materials.length === 0 ? (
-                <p style={{ fontSize: '0.85rem', color: '#a89878', fontStyle: 'italic', textAlign: 'center', padding: '0.75rem 0' }}>← Go back to Step 2 and upload materials for AI-grounded suggestions</p>
-              ) : suggestionsLoading ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0' }}>
-                  <span className="spinner" />
-                  <span style={{ fontSize: '0.88rem', color: '#8b6914', fontStyle: 'italic' }}>Analysing your materials and generating prompts...</span>
-                </div>
-              ) : visibleSuggestions.length > 0 ? (
-                <div>
-                  {visibleSuggestions.map((s, i) => (
-                    <div key={i} className="ai-card">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                        <p style={{ fontSize: '0.95rem', color: '#2a1f0e', lineHeight: 1.55, flex: 1 }}>{s.prompt}</p>
-                        {s.bloom_level && <span style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: BLOOM_COLORS[s.bloom_level] || '#8b7355', letterSpacing: '0.06em', textTransform: 'uppercase', flexShrink: 0, paddingTop: '2px' }}>{s.bloom_level}</span>}
-                      </div>
-                      {s.rationale && <p style={{ fontSize: '0.75rem', color: '#8b7355', fontStyle: 'italic', lineHeight: 1.4, marginBottom: '0.625rem' }}>{s.rationale}</p>}
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button onClick={() => acceptSuggestion(s)} disabled={discussionPrompts.filter(p => p.trim()).length >= 6}
-                          style={{ background: '#1a1208', color: '#f5edd8', border: 'none', borderRadius: '3px', padding: '0.3rem 0.875rem', cursor: 'pointer', fontSize: '0.8rem', fontFamily: "'Crimson Pro', Georgia, serif" }}>+ Add to prompts</button>
-                        <button onClick={() => setDismissedSuggestions(prev => new Set([...prev, s.prompt]))}
-                          style={{ background: 'none', border: '1px solid #d4c9b0', borderRadius: '3px', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.8rem', color: '#8b7355', fontFamily: "'Crimson Pro', Georgia, serif" }}>Dismiss</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : suggestionsLoaded ? (
-                <p style={{ fontSize: '0.85rem', color: '#a89878', fontStyle: 'italic', textAlign: 'center', padding: '0.5rem 0' }}>All suggestions used or dismissed.</p>
-              ) : null}
-            </div>
-
             <div style={sectionStyle}>
               <label style={labelStyle}>Forced-choice poll <span style={{ fontWeight: 300, textTransform: 'none', letterSpacing: 0, color: '#a89878' }}>(optional)</span></label>
               <input style={{ ...inputStyle, marginBottom: '0.5rem' }} placeholder="e.g. Was the CEO's decision ethically defensible?" value={pollQuestion} onChange={e => setPollQuestion(e.target.value)} />
@@ -565,41 +666,156 @@ export default function NewSessionPage() {
           </div>
         )}
 
+        {/* ── Step 4: Intervention Intent ── */}
         {step === 4 && (
           <div>
-            <h2 style={{ fontSize: '1.8rem', fontWeight: '400', color: '#1a1208', marginBottom: '0.4rem' }}>Set interventions</h2>
-            <p style={{ color: '#8b7355', fontSize: '0.95rem', marginBottom: '0.75rem', fontStyle: 'italic' }}>Configure the AI facilitation rules. These fire automatically during the live session.</p>
-            <div style={{ background: '#fdfaf4', border: '1px solid #e8d9b8', borderRadius: '3px', padding: '0.75rem 1rem', marginBottom: '2rem' }}>
-              <p style={{ fontSize: '0.82rem', color: '#8b6914', fontFamily: "'DM Mono', monospace", letterSpacing: '0.06em' }}>Group analysis runs every 60 seconds. Enabled interventions fire when conditions are detected.</p>
-            </div>
-            {[
-              { key: 'silence', label: 'Silence nudge', hint: "Fires when a participant hasn't spoken in 3+ minutes" },
-              { key: 'dominance', label: 'Dominance nudge', hint: 'Fires when one participant is taking more than their fair share' },
-              { key: 'offTopic', label: 'Off-topic redirect', hint: 'Fires when discussion drifts from the session topic' },
-              { key: 'shallow', label: 'Depth prompt', hint: 'Fires when discussion lacks analytical depth or evidence' },
-              { key: 'timeRunningOut', label: 'Time warning', hint: 'Fires in the final 5 minutes to prompt summary or decision' },
-            ].map(({ key, label, hint }) => (
-              <div key={key} style={{ marginBottom: '1.25rem', background: '#fff', border: '1px solid #e8e0d0', borderRadius: '3px', overflow: 'hidden' }}>
-                <div style={{ padding: '0.875rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.95rem', color: '#1a1208', marginBottom: '0.2rem', fontWeight: '500' }}>{label}</div>
-                    <div style={hintStyle}>{hint}</div>
-                  </div>
-                  <button onClick={() => updateIntervention(key, 'enabled', !interventions[key].enabled)} style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: interventions[key].enabled ? '#2d6a4f' : '#d4c9b0', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s' }}>
-                    <span style={{ position: 'absolute', top: '3px', left: interventions[key].enabled ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
-                  </button>
+            <h2 style={{ fontSize: '1.8rem', fontWeight: '400', color: '#1a1208', marginBottom: '0.4rem' }}>Set intervention intent</h2>
+            <p style={{ color: '#8b7355', fontSize: '0.95rem', marginBottom: '1.5rem', fontStyle: 'italic' }}>Tell the AI how to facilitate — it will write every nudge from scratch based on the live conversation. You set the intent, AI writes the words.</p>
+
+            {/* History banner */}
+            {intentLoading && (
+              <div style={{ background: '#fdfaf4', border: '1px solid #e8d9b8', borderRadius: '3px', padding: '0.75rem 1rem', marginBottom: '1.5rem' }}>
+                <p style={{ fontSize: '0.82rem', color: '#8b6914', fontFamily: "'DM Mono', monospace" }}>Loading defaults from past sessions...</p>
+              </div>
+            )}
+            {intentFromHistory && intentHistorySummary && (
+              <div style={{ background: '#f0f7f3', border: '1px solid #c8e0d4', borderRadius: '3px', padding: '0.875rem 1rem', marginBottom: '1.5rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                <span style={{ color: '#2d6a4f', flexShrink: 0, marginTop: '1px' }}>✦</span>
+                <div>
+                  <p style={{ fontSize: '0.82rem', color: '#2d6a4f', fontWeight: '500', marginBottom: '0.25rem' }}>Pre-filled from {intentHistorySummary.based_on_sessions} past session{intentHistorySummary.based_on_sessions > 1 ? 's' : ''} on this topic</p>
+                  <p style={{ fontSize: '0.78rem', color: '#5c7a5e', lineHeight: 1.5 }}>
+                    Cohort trend: {intentHistorySummary.avg_bloom_trend} · SHALLOW nudge effectiveness: {intentHistorySummary.shallow_nudge_effectiveness}
+                  </p>
+                  <p style={{ fontSize: '0.72rem', color: '#5c7a5e', marginTop: '0.25rem', fontStyle: 'italic' }}>Adjust freely — these are suggestions based on what worked before.</p>
                 </div>
-                {interventions[key].enabled && (
-                  <div style={{ borderTop: '1px solid #f0e8d8', padding: '0.75rem 1rem', background: '#fdfaf4' }}>
-                    <label style={{ ...labelStyle, marginBottom: '0.4rem' }}>Prompt text</label>
-                    <textarea value={interventions[key].prompt} onChange={e => updateIntervention(key, 'prompt', e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical', fontSize: '0.92rem' }} />
+              </div>
+            )}
+
+            {/* Global sliders */}
+            <div style={{ background: '#fff', border: '1px solid #e8e0d0', borderRadius: '4px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+              <p style={{ ...labelStyle, marginBottom: '1.25rem' }}>Global nudge behaviour</p>
+
+              <IntentSlider
+                label="Tone"
+                value={intentConfig.tone}
+                onChange={v => updateIntent('tone', v)}
+                labels={TONE_LABELS}
+                hints={TONE_HINTS}
+                leftLabel="Encouraging"
+                rightLabel="Demanding"
+              />
+
+              <IntentSlider
+                label="Sensitivity"
+                value={intentConfig.sensitivity}
+                onChange={v => updateIntent('sensitivity', v)}
+                labels={SENSITIVITY_LABELS}
+                hints={SENSITIVITY_HINTS}
+                leftLabel="Conservative"
+                rightLabel="Aggressive"
+              />
+
+              <div style={{ marginTop: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.4rem' }}>
+                  <span style={{ fontSize: '0.85rem', color: '#2a1f0e', fontWeight: '500' }}>Student cooldown</span>
+                  <span style={{ fontSize: '0.78rem', fontFamily: "'DM Mono', monospace", color: '#8b6914' }}>
+                    {intentConfig.cooldown_minutes === 0 ? 'No limit' : `${intentConfig.cooldown_minutes} min`}
+                  </span>
+                </div>
+                <input
+                  type="range" min="0" max="15" step="1"
+                  value={intentConfig.cooldown_minutes}
+                  onChange={e => updateIntent('cooldown_minutes', Number(e.target.value))}
+                  style={{ width: '100%', accentColor: '#8b6914', marginBottom: '0.35rem' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>No limit</span>
+                  <span style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#a89878' }}>15 min</span>
+                </div>
+                <p style={hintStyle}>Minimum time before the same student can receive another nudge.</p>
+              </div>
+            </div>
+
+            {/* Intervention types */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <p style={{ ...labelStyle, marginBottom: '0.75rem' }}>Enabled intervention types</p>
+              <p style={{ ...hintStyle, marginBottom: '1rem' }}>The AI writes all nudge text dynamically. You are only enabling the conditions it should watch for.</p>
+              {[
+                { key: 'silence', label: 'Silence', description: 'A participant has not contributed enough — AI invites them in' },
+                { key: 'dominating', label: 'Dominating', description: 'One participant is taking over — AI redistributes airtime' },
+                { key: 'off_topic', label: 'Off-topic', description: 'Discussion drifts from the session topic or must-cover concepts' },
+                { key: 'shallow', label: 'Shallow thinking', description: 'Students are recalling or summarising but not analysing or evaluating' },
+                { key: 'time_running_out', label: 'Time running out', description: 'Session nearing end — AI prompts for synthesis or decision' },
+              ].map(({ key, label, description }) => {
+                const enabled = intentConfig.enabled_types[key] !== false;
+                return (
+                  <div key={key} className={`intervention-card${enabled ? ' active' : ''}`}>
+                    <div className="intervention-card-header">
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                          <span style={{ fontSize: '0.95rem', color: '#1a1208', fontWeight: '500' }}>{label}</span>
+                          <span className="ai-badge">AI writes text</span>
+                        </div>
+                        <div style={hintStyle}>{description}</div>
+                      </div>
+                      <button
+                        onClick={() => updateEnabledType(key, !enabled)}
+                        style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: enabled ? '#2d6a4f' : '#d4c9b0', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s' }}>
+                        <span style={{ position: 'absolute', top: '3px', left: enabled ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                      </button>
+                    </div>
                   </div>
+                );
+              })}
+            </div>
+
+            {/* Must-cover concepts */}
+            <div style={{ background: '#fff', border: '1px solid #e8e0d0', borderRadius: '4px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+              <p style={{ ...labelStyle, marginBottom: '0.35rem' }}>Must-cover concepts</p>
+              <p style={{ ...hintStyle, marginBottom: '1rem' }}>Concepts the AI will actively steer the conversation toward. Auto-filled from your materials and objectives — edit freely.</p>
+              <div style={{ marginBottom: '0.875rem', minHeight: '2rem' }}>
+                {(intentConfig.must_cover_concepts || []).map(c => (
+                  <span key={c} className="concept-tag">
+                    {c}
+                    <button onClick={() => removeConcept(c)}>✕</button>
+                  </span>
+                ))}
+                {(intentConfig.must_cover_concepts || []).length === 0 && (
+                  <span style={{ fontSize: '0.78rem', color: '#c4b49a', fontStyle: 'italic' }}>No concepts added yet</span>
                 )}
               </div>
-            ))}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  style={{ ...inputStyle, flex: 1, fontSize: '0.9rem' }}
+                  placeholder="e.g. sunk-cost bias, present-moment awareness..."
+                  value={newConcept}
+                  onChange={e => setNewConcept(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addConcept(); } }}
+                />
+                <button onClick={addConcept} style={{ background: '#1a1208', color: '#f5edd8', border: 'none', borderRadius: '3px', padding: '0 1rem', cursor: 'pointer', fontSize: '0.85rem', fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>Add</button>
+              </div>
+            </div>
+
+            {/* Constraints */}
+            <div style={{ background: '#fff', border: '1px solid #e8e0d0', borderRadius: '4px', padding: '1.5rem' }}>
+              <p style={{ ...labelStyle, marginBottom: '0.75rem' }}>Hard constraints</p>
+              <Toggle
+                value={intentConfig.constraints?.always_reference_materials}
+                onChange={v => updateConstraint('always_reference_materials', v)}
+                label="Always reference course materials"
+                hint="AI must ground every off-topic or shallow nudge in a specific concept from your uploaded materials."
+              />
+              <Toggle
+                value={intentConfig.constraints?.never_name_in_group}
+                onChange={v => updateConstraint('never_name_in_group', v)}
+                label="Never name students in group-broadcast nudges"
+                hint="Group-level prompts will not address any student by name — only individual nudges will."
+              />
+            </div>
           </div>
         )}
 
+        {/* ── Step 5: Evaluation ── */}
         {step === 5 && (
           <div>
             <h2 style={{ fontSize: '1.8rem', fontWeight: '400', color: '#1a1208', marginBottom: '0.4rem' }}>Set evaluation</h2>
@@ -634,6 +850,7 @@ export default function NewSessionPage() {
           </div>
         )}
 
+        {/* ── Step 6: Launch ── */}
         {step === 6 && (
           <div>
             <h2 style={{ fontSize: '1.8rem', fontWeight: '400', color: '#1a1208', marginBottom: '0.4rem' }}>Review & launch</h2>
@@ -645,13 +862,13 @@ export default function NewSessionPage() {
                   ['Title', title], ['Topic', topic],
                   ['Type', sessionType + (isAsync ? ' · async' : ' · synchronous')],
                   ['Duration', duration + ' minutes'],
-                  ['Class size', classSize || 'Not specified'],
-                  ['Grading weight', gradingWeight ? gradingWeight + '%' : 'Not specified'],
                   ['Materials', materials.length + ' uploaded'],
                   ['Your prompts', discussionPrompts.filter(p => p.trim()).length + ' configured'],
-                  ['Interventions', Object.values(interventions).filter(i => i.enabled).length + ' active'],
+                  ['Nudge tone', TONE_LABELS[intentConfig.tone]],
+                  ['Sensitivity', SENSITIVITY_LABELS[intentConfig.sensitivity]],
+                  ['Must-cover concepts', (intentConfig.must_cover_concepts || []).length + ' defined'],
+                  ['Interventions', Object.values(intentConfig.enabled_types || {}).filter(Boolean).length + ' active'],
                   ['Scoring', `Topic ${weights.topic_adherence}% · Depth ${weights.depth}% · Material ${weights.material_application}% · Participation ${weights.participation}%`],
-                  ['Objective scoring', objectiveScoring ? 'Enabled' : 'Disabled'],
                 ].map(([k, v]) => (
                   <div key={k} style={{ display: 'flex', gap: '1rem', fontSize: '0.9rem' }}>
                     <span style={{ color: '#8b7355', fontFamily: "'DM Mono', monospace", fontSize: '0.72rem', minWidth: '160px', paddingTop: '2px' }}>{k}</span>
@@ -668,7 +885,7 @@ export default function NewSessionPage() {
             )}
             <div style={{ marginBottom: '2rem' }}>
               <p style={{ ...labelStyle, marginBottom: '0.75rem' }}>Before you publish</p>
-              <p style={{ fontSize: '0.85rem', color: '#8b7355', marginBottom: '1rem', lineHeight: 1.5 }}>Once the session starts, materials cannot be added. If you realise you've missed something after starting, you'll need to create a new session.</p>
+              <p style={{ fontSize: '0.85rem', color: '#8b7355', marginBottom: '1rem', lineHeight: 1.5 }}>Once the session starts, materials cannot be added. If you've missed something, create a new session.</p>
               {[
                 { key: 'ackMaterials', value: ackMaterials, set: setAckMaterials, label: 'All required materials have been uploaded and tagged correctly' },
                 { key: 'ackObjectives', value: ackObjectives, set: setAckObjectives, label: 'Learning objectives are defined and accurately reflect what I want to assess' },
