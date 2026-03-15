@@ -38,6 +38,7 @@ class PCMProcessor extends AudioWorkletProcessor {
 registerProcessor('pcm-processor', PCMProcessor);
 `;
 
+// ─── Audio pipeline ───────────────────────────────────────────────────────────
 function AudioStreamer({ sessionId, participantName, isSpeaking, mediaStream }) {
   const room = useRoomContext();
   const audioWsRef = useRef(null);
@@ -79,7 +80,9 @@ function AudioStreamer({ sessionId, participantName, isSpeaking, mediaStream }) 
           cleanupRef.current = () => {
             try { workletNode.disconnect(); source.disconnect(); audioContext.close(); } catch (_) {}
           };
+          console.log('[Audio] AudioWorklet running');
         } catch (workletErr) {
+          console.warn('[Audio] AudioWorklet failed, using ScriptProcessor:', workletErr.message);
           try {
             const audioContext = new AudioContext({ sampleRate: 16000 });
             const source = audioContext.createMediaStreamSource(mediaStream);
@@ -102,6 +105,7 @@ function AudioStreamer({ sessionId, participantName, isSpeaking, mediaStream }) 
             cleanupRef.current = () => {
               try { processor.disconnect(); source.disconnect(); audioContext.close(); } catch (_) {}
             };
+            console.log('[Audio] ScriptProcessor fallback running');
           } catch (spErr) {
             console.error('[Audio] Both audio methods failed:', spErr.message);
           }
@@ -123,32 +127,31 @@ function AudioStreamer({ sessionId, participantName, isSpeaking, mediaStream }) 
   return null;
 }
 
-// ─── Opening question banner ──────────────────────────────────────────────────
-// Full-width, prominent, stays for 60 seconds then fades
+// ─── Opening question banner — 30s auto-dismiss ───────────────────────────────
 function OpeningQuestionBanner({ question, onDismiss }) {
   const [visible, setVisible] = useState(false);
   const [fading, setFading] = useState(false);
 
   useEffect(() => {
-    // Animate in
     const t1 = setTimeout(() => setVisible(true), 100);
-    // Start fade at 55s
-    const t2 = setTimeout(() => setFading(true), 55000);
-    // Dismiss at 60s
-    const t3 = setTimeout(() => onDismiss(), 60000);
+    const t2 = setTimeout(() => setFading(true), 25000);  // start fade at 25s
+    const t3 = setTimeout(() => onDismiss(), 30000);       // dismiss at 30s
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, []);
 
   return (
     <div style={{
-      position: 'absolute', top: '72px', left: '50%',
+      position: 'absolute',
+      top: '72px',
+      left: '50%',
       transform: `translateX(-50%) translateY(${visible ? '0' : '-12px'})`,
       opacity: fading ? 0 : (visible ? 1 : 0),
       transition: fading ? 'opacity 5s ease' : 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
-      zIndex: 150, width: 'min(600px, calc(100vw - 2.5rem))',
-      background: 'rgba(10, 8, 4, 0.92)',
+      zIndex: 150,
+      width: 'min(600px, calc(100vw - 2.5rem))',
+      background: 'rgba(10, 8, 4, 0.94)',
       border: '1px solid rgba(201,184,144,0.45)',
-      borderTop: '2px solid rgba(201,184,144,0.7)',
+      borderTop: '2px solid rgba(201,184,144,0.75)',
       borderRadius: '10px',
       padding: '1.25rem 1.5rem',
       backdropFilter: 'blur(20px)',
@@ -166,28 +169,38 @@ function OpeningQuestionBanner({ question, onDismiss }) {
             {question}
           </p>
         </div>
-        <button onClick={onDismiss} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.25)', fontSize: '1.3rem', lineHeight: 1, padding: 0, flexShrink: 0, marginTop: '2px' }}
+        <button
+          onClick={onDismiss}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', fontSize: '1.3rem', lineHeight: 1, padding: 0, flexShrink: 0, marginTop: '2px' }}
           onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.7)'}
-          onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.25)'}>×</button>
+          onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.3)'}>×</button>
       </div>
     </div>
   );
 }
 
-// ─── Nudge card ───────────────────────────────────────────────────────────────
-// Personal (targeted) vs General (group/scheduled) have distinct visuals
+// ─── Nudge card — 30s auto-dismiss ───────────────────────────────────────────
+// Personal (AI targeted) vs Group (general) have distinct visuals
 function NudgeCard({ nudge, onDismiss }) {
   const isPersonal = nudge.type !== 'GENERAL_PROMPT' && nudge.target !== 'group';
   const [visible, setVisible] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setVisible(true), 50); return () => clearTimeout(t); }, []);
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setVisible(true), 50);
+    const t2 = setTimeout(() => onDismiss(), 30000); // 30s auto-dismiss
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
 
   return (
     <div style={{
       background: isPersonal ? 'rgba(26,18,8,0.96)' : 'rgba(14,22,36,0.96)',
-      border: `1px solid ${isPersonal ? 'rgba(201,184,144,0.5)' : 'rgba(80,120,180,0.4)'}`,
-      borderLeft: isPersonal ? '2px solid rgba(201,184,144,0.8)' : '2px solid rgba(100,148,200,0.8)',
-      borderRadius: '8px', padding: '1rem 1.25rem', maxWidth: '360px',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)',
+      border: `1px solid ${isPersonal ? 'rgba(201,184,144,0.45)' : 'rgba(80,120,180,0.4)'}`,
+      borderLeft: `2px solid ${isPersonal ? 'rgba(201,184,144,0.8)' : 'rgba(100,148,200,0.8)'}`,
+      borderRadius: '8px',
+      padding: '1rem 1.25rem',
+      maxWidth: '360px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+      backdropFilter: 'blur(12px)',
       transform: visible ? 'translateX(0)' : 'translateX(20px)',
       opacity: visible ? 1 : 0,
       transition: 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -195,16 +208,22 @@ function NudgeCard({ nudge, onDismiss }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-            <span style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block',
+            <span style={{
+              width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block',
               background: isPersonal ? '#c9b890' : '#6494c8',
-              boxShadow: `0 0 6px ${isPersonal ? 'rgba(201,184,144,0.5)' : 'rgba(100,148,200,0.5)'}` }} />
+              boxShadow: `0 0 6px ${isPersonal ? 'rgba(201,184,144,0.5)' : 'rgba(100,148,200,0.5)'}`,
+            }} />
             <span style={{ fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", letterSpacing: '0.12em', textTransform: 'uppercase', color: isPersonal ? '#c9b890' : '#8ab0d8' }}>
               {isPersonal ? 'For you' : 'Discussion prompt'}
             </span>
           </div>
-          <p style={{ color: '#f5edd8', fontSize: '0.9rem', lineHeight: 1.55, fontFamily: "'Crimson Pro', Georgia, serif" }}>{nudge.prompt}</p>
+          <p style={{ color: '#f5edd8', fontSize: '0.9rem', lineHeight: 1.55, fontFamily: "'Crimson Pro', Georgia, serif" }}>
+            {nudge.prompt}
+          </p>
         </div>
-        <button onClick={onDismiss} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', fontSize: '1.2rem', lineHeight: 1, padding: 0, flexShrink: 0 }}
+        <button
+          onClick={onDismiss}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', fontSize: '1.2rem', lineHeight: 1, padding: 0, flexShrink: 0 }}
           onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.8)'}
           onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.3)'}>×</button>
       </div>
@@ -212,6 +231,7 @@ function NudgeCard({ nudge, onDismiss }) {
   );
 }
 
+// ─── Main page ────────────────────────────────────────────────────────────────
 export default function SessionPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -231,6 +251,7 @@ export default function SessionPage() {
   const mediaStreamRef = useRef(null);
   const wsRef = useRef(null);
 
+  // Auth + session info
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
@@ -249,7 +270,7 @@ export default function SessionPage() {
     });
   }, [id]);
 
-  // WebSocket for prompts
+  // WebSocket — listens for prompts and session events
   useEffect(() => {
     if (!participantName || !id) return;
     const ws = new WebSocket(
@@ -261,12 +282,12 @@ export default function SessionPage() {
       try {
         const msg = JSON.parse(e.data);
 
-        // Opening question — show prominent banner
+        // Opening question — prominent banner, 30s
         if (msg.event === 'SESSION_STARTED' && msg.data?.opening_question) {
           setOpeningQuestion(msg.data.opening_question);
         }
 
-        // General scheduled prompt — broadcast to group
+        // General group prompt — AI decided whole group needs this
         if (msg.event === 'GENERAL_PROMPT') {
           const nudge = {
             id: Date.now(),
@@ -275,17 +296,15 @@ export default function SessionPage() {
             type: 'GENERAL_PROMPT',
           };
           setNudges(prev => [nudge, ...prev].slice(0, 3));
-          // General prompts stay longer — 3 minutes
-          setTimeout(() => setNudges(prev => prev.filter(n => n.id !== nudge.id)), 3 * 60 * 1000);
+          // NudgeCard handles its own 30s dismiss internally
         }
 
-        // Targeted AI intervention — personal nudge
+        // Targeted AI prompt — sent to this specific student
         if (msg.event === 'AI_PROMPT' &&
           (msg.data.target === 'group' || msg.data.target === participantName)) {
           const nudge = { ...msg.data, id: Date.now() };
           setNudges(prev => [nudge, ...prev].slice(0, 4));
-          // Personal nudges stay for 90 seconds
-          setTimeout(() => setNudges(prev => prev.filter(n => n.id !== nudge.id)), 30000);
+          // NudgeCard handles its own 30s dismiss internally
         }
       } catch (_) {}
     };
@@ -293,6 +312,7 @@ export default function SessionPage() {
     return () => ws.close();
   }, [participantName, id]);
 
+  // Join session — getUserMedia first (iOS requirement)
   async function joinSession() {
     const name = nameInput.trim();
     if (!name) return;
@@ -418,6 +438,7 @@ export default function SessionPage() {
           white-space: nowrap; user-select: none; -webkit-user-select: none; touch-action: manipulation;
         }
         .speaking-btn.off { background: rgba(201,184,144,0.1); border: 1px solid rgba(201,184,144,0.3); color: #c9b890; }
+        .speaking-btn.off:hover { background: rgba(201,184,144,0.18); border-color: rgba(201,184,144,0.55); }
         .speaking-btn.on { background: #c9b890; border: 1px solid #c9b890; color: #0e0b06; animation: speakpulse 2s ease-in-out infinite; }
         @keyframes speakpulse {
           0%,100% { box-shadow: 0 0 0 4px rgba(201,184,144,0.2), 0 0 24px rgba(201,184,144,0.25); }
@@ -437,7 +458,7 @@ export default function SessionPage() {
         </div>
       </div>
 
-      {/* Opening question banner — full width, prominent, 60s */}
+      {/* Opening question banner */}
       {openingQuestion && (
         <OpeningQuestionBanner
           question={openingQuestion}
@@ -459,7 +480,10 @@ export default function SessionPage() {
       <div style={{ position: 'absolute', top: '72px', right: '1.25rem', zIndex: 100, display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: '360px', pointerEvents: 'none' }}>
         {nudges.map(nudge => (
           <div key={nudge.id} style={{ pointerEvents: 'all' }}>
-            <NudgeCard nudge={nudge} onDismiss={() => setNudges(prev => prev.filter(n => n.id !== nudge.id))} />
+            <NudgeCard
+              nudge={nudge}
+              onDismiss={() => setNudges(prev => prev.filter(n => n.id !== nudge.id))}
+            />
           </div>
         ))}
       </div>
@@ -474,12 +498,15 @@ export default function SessionPage() {
         🎙 I'm Speaking
       </button>
 
+      {/* LiveKit room */}
       <LiveKitRoom token={token} serverUrl={liveKitUrl} connect={true} video={true} audio={false} style={{ height: '100vh' }}>
         <VideoConference />
         <RoomAudioRenderer />
         <AudioStreamer
-          sessionId={id} participantName={participantName}
-          isSpeaking={isSpeaking} mediaStream={mediaStreamRef.current}
+          sessionId={id}
+          participantName={participantName}
+          isSpeaking={isSpeaking}
+          mediaStream={mediaStreamRef.current}
         />
       </LiveKitRoom>
     </div>
