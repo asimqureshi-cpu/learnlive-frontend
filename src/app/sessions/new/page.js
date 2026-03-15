@@ -166,6 +166,14 @@ export default function NewSessionPage() {
   const [uploading, setUploading] = useState(false);
   const [sessionId, setSessionId] = useState(null);
 
+  // Library
+  const [libraryMaterials, setLibraryMaterials] = useState([]);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [savingToLibrary, setSavingToLibrary] = useState({});  // materialId → bool
+  const [savedToLibrary, setSavedToLibrary] = useState(new Set());  // materialIds saved this session
+  const [orgId, setOrgId] = useState(null);
+
   // Step 3
   const [openingQuestion, setOpeningQuestion] = useState('');
   const [discussionPrompts, setDiscussionPrompts] = useState(['', '', '']);
@@ -201,8 +209,9 @@ export default function NewSessionPage() {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return; }
-      const { data: userRow } = await supabase.from('users').select('role').eq('email', session.user.email).single();
+      const { data: userRow } = await supabase.from('users').select('role, organisation_id').eq('email', session.user.email).single();
       if (!userRow || userRow.role === 'student') { router.push('/student'); return; }
+      if (userRow.organisation_id) setOrgId(userRow.organisation_id);
       setAuthChecked(true);
     });
   }, []);
@@ -273,6 +282,55 @@ export default function NewSessionPage() {
       }
     } catch (err) { /* silent — defaults already set */ }
     setIntentLoading(false);
+  }
+
+  async function loadLibraryMaterials() {
+    if (!orgId || libraryLoaded) return;
+    try {
+      const params = new URLSearchParams({ organisation_id: orgId });
+      if (topicId) params.append('topic_id', topicId);
+      const res = await fetch(`${API}/api/library?${params}`);
+      const data = await res.json();
+      setLibraryMaterials(Array.isArray(data) ? data : []);
+      setLibraryLoaded(true);
+    } catch (err) { console.error('Library load failed:', err); }
+  }
+
+  async function saveToLibrary(materialId) {
+    if (!orgId || !sessionId) return;
+    setSavingToLibrary(prev => ({ ...prev, [materialId]: true }));
+    try {
+      await fetch(`${API}/api/library/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          material_id: materialId,
+          session_id: sessionId,
+          topic_ids: topicId ? [topicId] : [],
+          organisation_id: orgId,
+        }),
+      });
+      setSavedToLibrary(prev => new Set([...prev, materialId]));
+      setLibraryLoaded(false); // Refresh on next open
+    } catch (err) { alert('Failed to save to library: ' + err.message); }
+    setSavingToLibrary(prev => ({ ...prev, [materialId]: false }));
+  }
+
+  async function attachFromLibrary(libraryMaterialId) {
+    const id = sessionId || await ensureSessionCreated().catch(err => { alert(err.message); return null; });
+    if (!id) return;
+    try {
+      const res = await fetch(`${API}/api/library/${libraryMaterialId}/attach`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: id }),
+      });
+      const data = await res.json();
+      if (data.material) {
+        setMaterials(prev => [...prev, { ...data.material, tag: 'ai_context', from_library: true }]);
+        setShowLibrary(false);
+      }
+    } catch (err) { alert('Failed to attach material: ' + err.message); }
   }
 
   function updateIntent(key, value) {
@@ -534,11 +592,56 @@ export default function NewSessionPage() {
             <div style={sectionStyle}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <label style={{ ...labelStyle, marginBottom: 0 }}>Documents (PDF)</label>
-                <div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => { loadLibraryMaterials(); setShowLibrary(v => !v); }}
+                    style={{ background: 'none', border: '1px solid #d4c9b0', borderRadius: '3px', padding: '0.35rem 0.875rem', cursor: 'pointer', color: '#5c4a1e', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace" }}>
+                    {showLibrary ? 'Hide library' : '📚 From library'}
+                  </button>
                   <input type="file" accept=".pdf" ref={fileRef} onChange={uploadPDF} style={{ display: 'none' }} />
-                  <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ background: 'none', border: '1px solid #d4c9b0', borderRadius: '3px', padding: '0.35rem 0.875rem', cursor: 'pointer', color: '#5c4a1e', fontSize: '0.82rem', fontFamily: "'DM Mono', monospace" }}>{uploading ? 'Uploading...' : '+ Upload PDF'}</button>
+                  <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ background: 'none', border: '1px solid #d4c9b0', borderRadius: '3px', padding: '0.35rem 0.875rem', cursor: 'pointer', color: '#5c4a1e', fontSize: '0.82rem', fontFamily: "'DM Mono', monospace" }}>
+                    {uploading ? 'Uploading...' : '+ Upload PDF'}
+                  </button>
                 </div>
               </div>
+
+              {/* Library browser */}
+              {showLibrary && (
+                <div style={{ background: '#fdfaf4', border: '1px solid #e8d9b8', borderRadius: '3px', padding: '1rem', marginBottom: '1rem' }}>
+                  <p style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#8b6914', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.75rem' }}>
+                    Course library — reuse materials without re-uploading
+                  </p>
+                  {!libraryLoaded ? (
+                    <p style={{ fontSize: '0.85rem', color: '#a89878', fontStyle: 'italic' }}>Loading...</p>
+                  ) : libraryMaterials.length === 0 ? (
+                    <p style={{ fontSize: '0.85rem', color: '#a89878', fontStyle: 'italic' }}>No library materials yet. Upload a PDF and save it to the library to reuse it across sessions.</p>
+                  ) : (
+                    libraryMaterials.map(lm => {
+                      const alreadyAttached = materials.some(m => m.library_material_id === lm.id || m.file_path === lm.file_path);
+                      return (
+                        <div key={lm.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.75rem', background: '#fff', border: '1px solid #e8e0d0', borderRadius: '3px', marginBottom: '0.5rem', gap: '0.75rem' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '0.9rem', color: '#2a1f0e', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>📄 {lm.file_name}</div>
+                            {lm.metadata?.key_topics?.length > 0 && (
+                              <div style={{ fontSize: '0.68rem', fontFamily: "'DM Mono', monospace", color: '#a89878', marginTop: '2px' }}>
+                                {lm.metadata.key_topics.slice(0, 3).join(' · ')}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => !alreadyAttached && attachFromLibrary(lm.id)}
+                            disabled={alreadyAttached}
+                            style={{ fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", background: alreadyAttached ? 'transparent' : '#1a1208', color: alreadyAttached ? '#a89878' : '#f5edd8', border: alreadyAttached ? '1px solid #d4c9b0' : 'none', borderRadius: '2px', padding: '0.25rem 0.75rem', cursor: alreadyAttached ? 'default' : 'pointer', flexShrink: 0 }}>
+                            {alreadyAttached ? 'Added' : 'Use'}
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {/* Uploaded materials list */}
               {materials.length === 0 ? (
                 <div onClick={() => fileRef.current?.click()} style={{ border: '2px dashed #d4c9b0', borderRadius: '4px', padding: '1.5rem', textAlign: 'center', cursor: 'pointer' }}>
                   <p style={{ color: '#a89878', fontSize: '0.9rem', marginBottom: '0.25rem' }}>Click to upload case document, reading pack, or notes</p>
@@ -546,21 +649,42 @@ export default function NewSessionPage() {
                 </div>
               ) : (
                 <div>
-                  {materials.map(m => (
-                    <div key={m.id} style={{ background: '#fdfaf4', border: '1px solid #e8e0d0', borderRadius: '3px', padding: '0.75rem 1rem', marginBottom: '0.5rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                        <span style={{ fontSize: '0.9rem', color: '#2a1f0e', fontWeight: '500' }}>📄 {m.file_name}</span>
-                        <button onClick={() => deleteMaterial(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c9b890', fontSize: '0.8rem' }}>✕</button>
+                  {materials.map(m => {
+                    const isLibrary = !!m.from_library;
+                    const isSaved = savedToLibrary.has(m.id);
+                    const isSaving = savingToLibrary[m.id];
+                    return (
+                      <div key={m.id} style={{ background: '#fdfaf4', border: '1px solid #e8e0d0', borderRadius: '3px', padding: '0.75rem 1rem', marginBottom: '0.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: '0.9rem', color: '#2a1f0e', fontWeight: '500' }}>📄 {m.file_name}</span>
+                            {isLibrary && (
+                              <span style={{ marginLeft: '0.5rem', fontSize: '0.62rem', fontFamily: "'DM Mono', monospace", color: '#2d6a4f', background: '#f0f7f3', border: '1px solid #c8e0d4', borderRadius: '2px', padding: '0.1rem 0.4rem' }}>library</span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+                            {/* Save to library button — only for fresh uploads, not library materials */}
+                            {!isLibrary && sessionId && (
+                              <button
+                                onClick={() => !isSaved && !isSaving && saveToLibrary(m.id)}
+                                disabled={isSaved || isSaving}
+                                style={{ fontSize: '0.62rem', fontFamily: "'DM Mono', monospace", background: 'none', border: `1px solid ${isSaved ? '#c8e0d4' : '#d4c9b0'}`, borderRadius: '2px', padding: '0.15rem 0.5rem', cursor: isSaved ? 'default' : 'pointer', color: isSaved ? '#2d6a4f' : '#8b7355', whiteSpace: 'nowrap' }}>
+                                {isSaving ? 'Saving...' : isSaved ? '✓ Saved to library' : '+ Save to library'}
+                              </button>
+                            )}
+                            <button onClick={() => deleteMaterial(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c9b890', fontSize: '0.8rem' }}>✕</button>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                          {['required_prework', 'optional_reference', 'ai_context', 'instructor_only'].map(tag => (
+                            <button key={tag} className={`tag-btn${m.tag === tag ? ' active' : ''}`} onClick={() => updateTag(m.id, tag)}>
+                              {tag === 'required_prework' ? 'Required pre-work' : tag === 'optional_reference' ? 'Optional reference' : tag === 'ai_context' ? 'AI context only' : 'Instructor only'}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                        {['required_prework', 'optional_reference', 'ai_context', 'instructor_only'].map(tag => (
-                          <button key={tag} className={`tag-btn${m.tag === tag ? ' active' : ''}`} onClick={() => updateTag(m.id, tag)}>
-                            {tag === 'required_prework' ? 'Required pre-work' : tag === 'optional_reference' ? 'Optional reference' : tag === 'ai_context' ? 'AI context only' : 'Instructor only'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <button onClick={() => fileRef.current?.click()} style={{ width: '100%', padding: '0.6rem', border: '1px dashed #d4c9b0', borderRadius: '3px', background: 'none', cursor: 'pointer', color: '#a89878', fontSize: '0.85rem', fontFamily: "'Crimson Pro', Georgia, serif", marginTop: '0.25rem' }}>+ Add another PDF</button>
                 </div>
               )}
