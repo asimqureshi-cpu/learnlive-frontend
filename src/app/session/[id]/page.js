@@ -285,7 +285,7 @@ export default function SessionPage() {
           const nudge = { ...msg.data, id: Date.now() };
           setNudges(prev => [nudge, ...prev].slice(0, 4));
           // Personal nudges stay for 90 seconds
-          setTimeout(() => setNudges(prev => prev.filter(n => n.id !== nudge.id)), 90000);
+          setTimeout(() => setNudges(prev => prev.filter(n => n.id !== nudge.id)), 30000);
         }
       } catch (_) {}
     };
